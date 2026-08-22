@@ -4,6 +4,7 @@ SprintDesk is a responsive sprint-management single-page application. It combine
 
 ## Submission links
 
+- **Public repository:** pending — no Git remote is configured.
 - **Live deployment:** pending — no public deployment URL has been created yet.
 - **Demo video:** pending — no public recording URL has been created yet.
 - **Screenshots:** pending — screenshots have not been captured or checked into this repository.

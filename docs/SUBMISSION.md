@@ -28,6 +28,8 @@
 
 ### Deployment and public artifacts
 
+- [ ] Configure the intended public Git remote and publish the final release commit before replacing the README's pending repository entry.
+- [ ] Verify the public repository URL and a clean clone in a signed-out/incognito context.
 - [ ] Deploy through either `vercel.json` or `netlify.toml` with Node 22.12.0+.
 - [ ] Verify direct navigation and browser refresh on `/login`, `/dashboard`, `/board`, and `/analytics`.
 - [ ] Verify `/mock-data.json`, hashed assets, DummyJSON, JSONPlaceholder, and avatar requests on the deployed origin.
@@ -36,7 +38,7 @@
 - [ ] Meet the release gates: Performance >= 88 and Accessibility >= 92. Record URL, route, device mode, date, and tool version; do not average or invent values.
 - [ ] Capture representative screenshots, or leave the README screenshot entry explicitly pending.
 - [ ] Record and publish the demo video.
-- [ ] Replace the README's pending live/demo entries with public links and verify them in a signed-out/incognito window.
+- [ ] Replace the README's pending repository/live/demo entries only after publication, then verify every link in a signed-out/incognito window.
 
 Suggested Lighthouse commands after deploying:
 
