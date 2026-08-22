@@ -175,6 +175,33 @@ describe('board store', () => {
     expect(getBoardInvariantErrors(store.getState())).toEqual([]);
   });
 
+  it.each([
+    [{ title: 42 }, 'title'],
+    [{ title: null }, 'title'],
+    [{ title: { unsafe: true } }, 'title'],
+    [{ description: 42 }, 'description'],
+    [{ description: null }, 'description'],
+    [{ description: { unsafe: true } }, 'description'],
+    [{ priority: 'urgent' }, 'priority'],
+    [{ assigneeId: 42 }, 'assigneeId'],
+    [{ assigneeId: 'missing' }, 'assigneeId'],
+    [{ dueDate: { unsafe: true } }, 'dueDate'],
+    [{ dueDate: 'not-a-date' }, 'dueDate'],
+  ])('returns validation for malformed editable payload %j without throwing or mutating', async (payload, field) => {
+    const store = await ready(createBoardStore());
+    initialize(store);
+    const beforeTask = structuredClone(store.getState().tasksById.a);
+    const beforeColumns = structuredClone(store.getState().columnTaskIds);
+    let result: ReturnType<typeof store.getState>['updateTask'] extends (...args: never[]) => infer R ? R : never;
+
+    expect(() => {
+      result = store.getState().updateTask('a', payload as unknown as UpdateTaskInput);
+    }).not.toThrow();
+    expect(result!).toMatchObject({ ok: false, error: { code: 'validation', field } });
+    expect(store.getState().tasksById.a).toEqual(beforeTask);
+    expect(store.getState().columnTaskIds).toEqual(beforeColumns);
+  });
+
   it('retries colliding task and comment IDs until unique IDs are generated', async () => {
     const generated = ['a', 'new-task', 'm1', 'new-comment'];
     const generateId = vi.fn(() => generated.shift() ?? 'unused');
@@ -233,6 +260,15 @@ describe('board store', () => {
     }],
     ['an empty persisted comment body', (domain: BoardStateV1) => {
       domain.commentsByTaskId.a![0]!.body = '   ';
+    }],
+    ['a tasksById key and task ID mismatch', (domain: BoardStateV1) => {
+      domain.tasksById.a!.id = 'different-id';
+    }],
+    ['an extra status bucket', (domain: BoardStateV1) => {
+      (domain.columnTaskIds as unknown as Record<string, string[]>).cancelled = [];
+    }],
+    ['an extra top-level persisted field', (domain: BoardStateV1) => {
+      (domain as unknown as Record<string, unknown>).transientDrawerState = true;
     }],
   ])('fails safely when persisted data contains %s', async (_, corrupt) => {
     const domain = validPersistedDomain();

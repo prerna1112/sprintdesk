@@ -15,7 +15,7 @@ export const BOARD_STORAGE_VERSION = 1;
 export const BOARD_ID_GENERATION_ATTEMPTS = 8;
 export const BOARD_STATUSES: TaskStatus[] = ['backlog', 'inProgress', 'review', 'done'];
 
-type ValidationField = 'title' | 'priority' | 'assigneeId' | 'dueDate' | 'body' | 'taskId' | 'destination' | 'details';
+type ValidationField = 'title' | 'description' | 'priority' | 'assigneeId' | 'dueDate' | 'body' | 'taskId' | 'destination' | 'details';
 
 export interface BoardActionError {
   code: 'validation' | 'notFound' | 'invalidMove' | 'notReady';
@@ -142,9 +142,17 @@ function isComment(value: unknown): value is TaskComment {
 
 function parsePersistedDomain(value: unknown): BoardStateV1 | null {
   if (!isRecord(value) || value.version !== 1 || typeof value.initializedFromSource !== 'boolean') return null;
+  const persistedKeys = Object.keys(value).sort();
+  const expectedKeys = ['columnTaskIds', 'commentsByTaskId', 'initializedFromSource', 'tasksById', 'version'];
+  if (persistedKeys.length !== expectedKeys.length || persistedKeys.some((key, index) => key !== expectedKeys[index])) return null;
   if (!isRecord(value.tasksById) || !isRecord(value.columnTaskIds) || !isRecord(value.commentsByTaskId)) return null;
   if (!Object.values(value.tasksById).every(isTask)) return null;
+  if (Object.entries(value.tasksById).some(([key, task]) => (task as SprintTask).id !== key)) return null;
   const persistedColumns = value.columnTaskIds;
+  const persistedColumnKeys = Object.keys(persistedColumns).sort();
+  const expectedColumnKeys = [...BOARD_STATUSES].sort();
+  if (persistedColumnKeys.length !== expectedColumnKeys.length
+    || persistedColumnKeys.some((key, index) => key !== expectedColumnKeys[index])) return null;
   if (!BOARD_STATUSES.every((status) => Array.isArray(persistedColumns[status]) && (persistedColumns[status] as unknown[]).every((id: unknown) => typeof id === 'string'))) return null;
   if (!Object.values(value.commentsByTaskId).every((comments) => Array.isArray(comments) && comments.every(isComment))) return null;
 
@@ -198,6 +206,18 @@ function validateTaskFields(
   if (!['low', 'medium', 'high'].includes(input.priority)) return validationError('priority', 'Choose a valid priority.');
   if (!input.assigneeId || (knownAssigneeIds.length > 0 && !knownAssigneeIds.includes(input.assigneeId))) return validationError('assigneeId', 'Choose a valid assignee.');
   if (!isValidDate(input.dueDate)) return validationError('dueDate', 'Enter a valid due date.');
+  return { ok: true };
+}
+
+function validateUpdateInput(input: Record<string, unknown>): { ok: true } | { ok: false; error: BoardActionError } {
+  if ('title' in input && input.title !== undefined && typeof input.title !== 'string') return validationError('title', 'Title must be text.');
+  if ('description' in input && input.description !== undefined && typeof input.description !== 'string') return validationError('description', 'Description must be text.');
+  if ('priority' in input && input.priority !== undefined
+    && (typeof input.priority !== 'string' || !['low', 'medium', 'high'].includes(input.priority))) {
+    return validationError('priority', 'Choose a valid priority.');
+  }
+  if ('assigneeId' in input && input.assigneeId !== undefined && typeof input.assigneeId !== 'string') return validationError('assigneeId', 'Choose a valid assignee.');
+  if ('dueDate' in input && input.dueDate !== undefined && typeof input.dueDate !== 'string') return validationError('dueDate', 'Enter a valid due date.');
   return { ok: true };
 }
 
@@ -284,9 +304,12 @@ export function createBoardStore(options: { skipHydration?: boolean; generateId?
           const task = state.tasksById[taskId];
           if (!task) return { ok: false, error: { code: 'notFound', field: 'taskId', message: 'Task was not found.' } };
           if (!isRecord(input as unknown)) return validationError('details', 'Task details must be an object.');
+          const runtimeInput = input as unknown as Record<string, unknown>;
           const editableKeys = new Set(['title', 'description', 'priority', 'assigneeId', 'dueDate']);
-          const unexpectedKey = Object.keys(input).find((key) => !editableKeys.has(key));
+          const unexpectedKey = Object.keys(runtimeInput).find((key) => !editableKeys.has(key));
           if (unexpectedKey) return validationError('details', `Task field “${unexpectedKey}” cannot be updated here.`);
+          const runtimeValidation = validateUpdateInput(runtimeInput);
+          if (!runtimeValidation.ok) return runtimeValidation;
           const editableInput = input as UpdateTaskInput;
           const next = {
             title: editableInput.title ?? task.title,
