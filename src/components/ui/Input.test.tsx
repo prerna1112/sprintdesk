@@ -18,4 +18,25 @@ describe('Input', () => {
       'Use a name your team recognizes A project name is required',
     );
   });
+
+  it('merges caller descriptions while keeping an error authoritative', () => {
+    render(
+      <>
+        <p id="requirements">At least three characters</p>
+        <Input
+          aria-describedby="requirements"
+          aria-invalid="false"
+          error="This value is unavailable"
+          hint="Choose another value"
+          label="Handle"
+        />
+      </>,
+    );
+
+    const input = screen.getByRole('textbox', { name: 'Handle' });
+    expect(input).toBeInvalid();
+    expect(input).toHaveAccessibleDescription(
+      'At least three characters Choose another value This value is unavailable',
+    );
+  });
 });

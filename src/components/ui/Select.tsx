@@ -9,14 +9,27 @@ export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { children, className, error, hint, id: providedId, label, placeholder, ...props },
+  {
+    'aria-describedby': callerDescribedBy,
+    'aria-invalid': callerInvalid,
+    children,
+    className,
+    error,
+    hint,
+    id: providedId,
+    label,
+    placeholder,
+    ...props
+  },
   ref,
 ) {
   const generatedId = useId();
   const id = providedId ?? generatedId;
   const hintId = hint ? `${id}-hint` : undefined;
   const errorId = error ? `${id}-error` : undefined;
-  const describedBy = [hintId, errorId].filter(Boolean).join(' ') || undefined;
+  const describedBy = [callerDescribedBy, hintId, errorId]
+    .filter(Boolean)
+    .join(' ') || undefined;
 
   return (
     <div className="grid gap-1.5">
@@ -25,7 +38,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       </label>
       <select
         aria-describedby={describedBy}
-        aria-invalid={error ? true : undefined}
+        aria-invalid={error ? true : callerInvalid}
         className={cn(
           'h-10 w-full rounded-lg border bg-surface px-3 text-sm text-foreground shadow-sm disabled:cursor-not-allowed disabled:opacity-50',
           error && 'border-danger focus-visible:ring-danger',

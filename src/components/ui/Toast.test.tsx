@@ -14,9 +14,13 @@ function ToastHarness() {
       }}>Add and dismiss</button>
       <button onClick={() => {
         for (let index = 1; index <= 5; index += 1) {
-          toast({ title: `Notice ${index}`, duration: 0 });
+          toast({ title: `Notice ${index}`, duration: 10000 });
         }
       }}>Fill</button>
+      <button onClick={() => {
+        toast({ title: 'Persistent 1', duration: 0 });
+        toast({ title: 'Persistent 2', duration: 0 });
+      }}>Add persistent pair</button>
     </div>
   );
 }
@@ -36,6 +40,7 @@ describe('ToastProvider', () => {
   });
 
   it('supports programmatic dismissal and caps the visible stack at four', () => {
+    vi.useFakeTimers();
     render(<ToastProvider><ToastHarness /></ToastProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Add and dismiss' }));
     expect(screen.queryByText('Temporary')).not.toBeInTheDocument();
@@ -43,6 +48,8 @@ describe('ToastProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fill' }));
     expect(screen.queryByText('Notice 1')).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /Dismiss Notice/ })).toHaveLength(4);
+    expect(vi.getTimerCount()).toBe(4);
+    vi.useRealTimers();
   });
 
   it('auto-dismisses after the requested duration', () => {
@@ -51,6 +58,59 @@ describe('ToastProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(screen.getByText('Saved')).toBeVisible();
     act(() => vi.advanceTimersByTime(5000));
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('pauses on hover and resumes with the remaining duration', () => {
+    vi.useFakeTimers();
+    render(<ToastProvider><ToastHarness /></ToastProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    const toast = screen.getByText('Saved').closest('[data-toast-id]') as HTMLElement;
+
+    act(() => vi.advanceTimersByTime(4000));
+    fireEvent.mouseEnter(toast);
+    act(() => vi.advanceTimersByTime(5000));
+    expect(screen.getByText('Saved')).toBeVisible();
+    fireEvent.mouseLeave(toast);
+    act(() => vi.advanceTimersByTime(999));
+    expect(screen.getByText('Saved')).toBeVisible();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('does not dismiss a focused toast and moves focus on manual dismissal', async () => {
+    vi.useFakeTimers();
+    render(<ToastProvider><ToastHarness /></ToastProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add persistent pair' }));
+    const firstDismiss = screen.getByRole('button', { name: 'Dismiss Saved' });
+    firstDismiss.focus();
+
+    act(() => vi.advanceTimersByTime(6000));
+    expect(screen.getByText('Saved')).toBeVisible();
+    fireEvent.click(firstDismiss);
+    await act(async () => Promise.resolve());
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dismiss Persistent 1' })).toHaveFocus();
+    vi.useRealTimers();
+  });
+
+  it('resumes a focus-paused timer with only its remaining duration', () => {
+    vi.useFakeTimers();
+    render(<ToastProvider><ToastHarness /></ToastProvider>);
+    const add = screen.getByRole('button', { name: 'Add' });
+    fireEvent.click(add);
+    act(() => vi.advanceTimersByTime(2000));
+    screen.getByRole('button', { name: 'Dismiss Saved' }).focus();
+
+    act(() => vi.advanceTimersByTime(5000));
+    expect(screen.getByText('Saved')).toBeVisible();
+    add.focus();
+    act(() => vi.advanceTimersByTime(2999));
+    expect(screen.getByText('Saved')).toBeVisible();
+    act(() => vi.advanceTimersByTime(1));
     expect(screen.queryByText('Saved')).not.toBeInTheDocument();
     vi.useRealTimers();
   });

@@ -26,6 +26,34 @@ describe('theme', () => {
     expect(stored.state.preference).toBe('dark');
   });
 
+  it('normalizes invalid and malformed persisted preferences', async () => {
+    localStorage.setItem(
+      THEME_STORAGE_KEY,
+      JSON.stringify({ state: { preference: 'sepia' }, version: 1 }),
+    );
+    await act(async () => useThemeStore.persist.rehydrate());
+    expect(useThemeStore.getState().preference).toBe('system');
+    expect(
+      JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) ?? '{}').state.preference,
+    ).toBe('system');
+
+    localStorage.setItem(THEME_STORAGE_KEY, '{malformed');
+    await act(async () => useThemeStore.persist.rehydrate());
+    expect(useThemeStore.getState().preference).toBe('system');
+    expect(
+      JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) ?? '{}').state.preference,
+    ).toBe('system');
+  });
+
+  it('migrates the legacy theme field', async () => {
+    localStorage.setItem(
+      THEME_STORAGE_KEY,
+      JSON.stringify({ state: { theme: 'dark' }, version: 0 }),
+    );
+    await act(async () => useThemeStore.persist.rehydrate());
+    expect(useThemeStore.getState().preference).toBe('dark');
+  });
+
   it('applies system theme and reacts to system changes', () => {
     let listener: (() => void) | undefined;
     const media = {

@@ -12,6 +12,45 @@ interface ThemeState {
 }
 
 export const THEME_STORAGE_KEY = 'sprintdesk.theme.v1';
+const THEME_STORAGE_VERSION = 1;
+
+export function isThemePreference(value: unknown): value is ThemePreference {
+  return value === 'light' || value === 'dark' || value === 'system';
+}
+
+function persistedPreference(value: unknown): ThemePreference {
+  if (!value || typeof value !== 'object') return 'system';
+  const record = value as Record<string, unknown>;
+  const candidate = record.preference ?? record.theme;
+  return isThemePreference(candidate) ? candidate : 'system';
+}
+
+const themeStorage = createJSONStorage<{ preference: ThemePreference }>(() => ({
+  getItem: (name) => {
+    try {
+      return localStorage.getItem(name);
+    } catch {
+      return JSON.stringify({
+        state: { preference: 'system' },
+        version: THEME_STORAGE_VERSION,
+      });
+    }
+  },
+  removeItem: (name) => {
+    try {
+      localStorage.removeItem(name);
+    } catch {
+      // Theme persistence is an enhancement; the in-memory preference still works.
+    }
+  },
+  setItem: (name, value) => {
+    try {
+      localStorage.setItem(name, value);
+    } catch {
+      // Theme persistence is an enhancement; the in-memory preference still works.
+    }
+  },
+}));
 
 export function resolveThemePreference(
   preference: ThemePreference,
@@ -43,8 +82,22 @@ export const useThemeStore = create<ThemeState>()(
     }),
     {
       name: THEME_STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: themeStorage,
+      version: THEME_STORAGE_VERSION,
+      migrate: (persistedState) => ({
+        preference: persistedPreference(persistedState),
+      }),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        preference: persistedPreference(persistedState),
+      }),
       partialize: (state) => ({ preference: state.preference }),
+      onRehydrateStorage: (state) => (hydratedState, error) => {
+        if (error) state.setPreference('system');
+        else if (hydratedState) {
+          hydratedState.setPreference(hydratedState.preference);
+        }
+      },
     },
   ),
 );

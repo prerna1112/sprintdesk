@@ -23,7 +23,14 @@
             .querySelector('meta[name="theme-color"]')
             ?.setAttribute('content', dark ? '#0b1120' : '#f8fafc');
         } catch {
-          // The default light palette remains readable when storage is unavailable.
+          const dark = window.matchMedia(
+            '(prefers-color-scheme: dark)',
+          ).matches;
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          document
+            .querySelector('meta[name="theme-color"]')
+            ?.setAttribute('content', dark ? '#0b1120' : '#f8fafc');
         }
       })();
     </script>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Drawer } from '../components/ui/Drawer';
@@ -40,6 +40,17 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 export function AppShell() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const desktopQuery = window.matchMedia('(min-width: 1024px)');
+    const closeAtDesktop = (event: MediaQueryListEvent | MediaQueryList) => {
+      if (event.matches) setMobileMenuOpen(false);
+    };
+    closeAtDesktop(desktopQuery);
+    desktopQuery.addEventListener('change', closeAtDesktop);
+    return () => desktopQuery.removeEventListener('change', closeAtDesktop);
+  }, []);
   const pageTitle =
     navigation.find((item) => location.pathname.startsWith(item.to))?.label ??
     'SprintDesk';
