@@ -12,9 +12,10 @@ import type {
 
 export const BOARD_STORAGE_KEY = 'sprintdesk.board.v1';
 export const BOARD_STORAGE_VERSION = 1;
+export const BOARD_ID_GENERATION_ATTEMPTS = 8;
 export const BOARD_STATUSES: TaskStatus[] = ['backlog', 'inProgress', 'review', 'done'];
 
-type ValidationField = 'title' | 'priority' | 'assigneeId' | 'dueDate' | 'body' | 'taskId' | 'destination';
+type ValidationField = 'title' | 'priority' | 'assigneeId' | 'dueDate' | 'body' | 'taskId' | 'destination' | 'details';
 
 export interface BoardActionError {
   code: 'validation' | 'notFound' | 'invalidMove' | 'notReady';
@@ -59,6 +60,15 @@ export interface BoardCounts extends Record<TaskStatus, number> {
   total: number;
 }
 
+export class BoardIdCollisionError extends Error {
+  readonly code = 'idCollision';
+
+  constructor(entity: 'task' | 'comment') {
+    super(`Unable to generate a unique ${entity} ID.`);
+    this.name = 'BoardIdCollisionError';
+  }
+}
+
 export interface BoardStore extends BoardStateV1 {
   hasHydrated: boolean;
   currentSprintId: string | null;
@@ -97,29 +107,37 @@ function isValidDate(value: string): boolean {
   return new Date(`${datePart}T00:00:00.000Z`).toISOString().slice(0, 10) === datePart;
 }
 
+function isValidTimestamp(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value));
+}
+
 function isTask(value: unknown): value is SprintTask {
   if (!isRecord(value)) return false;
+  const statusIsValid = BOARD_STATUSES.includes(value.status as TaskStatus);
+  const completionIsValid = value.status === 'done'
+    ? typeof value.completedAt === 'string' && isValidTimestamp(value.completedAt)
+    : value.completedAt === null;
   return typeof value.id === 'string'
     && typeof value.title === 'string'
     && typeof value.description === 'string'
-    && BOARD_STATUSES.includes(value.status as TaskStatus)
+    && statusIsValid
     && ['low', 'medium', 'high'].includes(value.priority as string)
     && typeof value.assigneeId === 'string'
     && typeof value.sprintId === 'string'
     && typeof value.dueDate === 'string' && isValidDate(value.dueDate)
-    && typeof value.createdAt === 'string' && Number.isFinite(Date.parse(value.createdAt))
-    && typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt))
-    && (value.completedAt === null || (typeof value.completedAt === 'string' && Number.isFinite(Date.parse(value.completedAt))));
+    && typeof value.createdAt === 'string' && isValidTimestamp(value.createdAt)
+    && typeof value.updatedAt === 'string' && isValidTimestamp(value.updatedAt)
+    && completionIsValid;
 }
 
 function isComment(value: unknown): value is TaskComment {
   return isRecord(value)
-    && typeof value.id === 'string'
-    && typeof value.taskId === 'string'
-    && typeof value.authorId === 'string'
-    && typeof value.body === 'string'
+    && typeof value.id === 'string' && value.id.length > 0
+    && typeof value.taskId === 'string' && value.taskId.length > 0
+    && typeof value.authorId === 'string' && value.authorId.length > 0
+    && typeof value.body === 'string' && value.body.trim().length > 0
     && typeof value.createdAt === 'string'
-    && Number.isFinite(Date.parse(value.createdAt));
+    && isValidTimestamp(value.createdAt);
 }
 
 function parsePersistedDomain(value: unknown): BoardStateV1 | null {
@@ -147,10 +165,24 @@ export function getBoardInvariantErrors(
       if (state.tasksById[id]?.status !== status) errors.push(`Task ${id} does not match its column.`);
     });
   });
+  Object.values(state.tasksById).forEach((task) => {
+    if (task.status === 'done' && (task.completedAt === null || !isValidTimestamp(task.completedAt))) {
+      errors.push(`Done task ${task.id} must have a valid completion timestamp.`);
+    }
+    if (task.status !== 'done' && task.completedAt !== null) {
+      errors.push(`Non-done task ${task.id} cannot have a completion timestamp.`);
+    }
+  });
+  const commentIds: string[] = [];
   Object.entries(state.commentsByTaskId).forEach(([taskId, comments]) => {
     if (!state.tasksById[taskId]) errors.push(`Comments reference missing task ${taskId}.`);
     if (comments.some((comment) => comment.taskId !== taskId)) errors.push(`Comment task mismatch for ${taskId}.`);
+    comments.forEach((comment) => {
+      commentIds.push(comment.id);
+      if (!isComment(comment as unknown)) errors.push(`Comment data for ${taskId} is invalid.`);
+    });
   });
+  if (new Set(commentIds).size !== commentIds.length) errors.push('Comment IDs must be globally unique.');
   return errors;
 }
 
@@ -169,14 +201,23 @@ function validateTaskFields(
   return { ok: true };
 }
 
-function uuid(): string {
-  return globalThis.crypto.randomUUID();
+function nextUniqueId(
+  entity: 'task' | 'comment',
+  generateId: () => string,
+  exists: (id: string) => boolean,
+): string {
+  for (let attempt = 0; attempt < BOARD_ID_GENERATION_ATTEMPTS; attempt += 1) {
+    const candidate = generateId();
+    if (typeof candidate === 'string' && candidate.length > 0 && !exists(candidate)) return candidate;
+  }
+  throw new BoardIdCollisionError(entity);
 }
 
-export function createBoardStore(options: { skipHydration?: boolean } = {}) {
+export function createBoardStore(options: { skipHydration?: boolean; generateId?: () => string } = {}) {
   const storage = typeof window === 'undefined'
     ? undefined
     : createJSONStorage(() => localStorage);
+  const generateId = options.generateId ?? (() => globalThis.crypto.randomUUID());
   let storeRef: StoreApi<BoardStore> | null = null;
 
   const store = createStore<BoardStore>()(
@@ -217,7 +258,7 @@ export function createBoardStore(options: { skipHydration?: boolean } = {}) {
           if (!state.currentSprintId) return { ok: false, error: { code: 'notReady', message: 'Sprint data is not ready.' } };
           const validation = validateTaskFields(input, state.knownAssigneeIds);
           if (!validation.ok) return validation;
-          const taskId = uuid();
+          const taskId = nextUniqueId('task', generateId, (id) => Boolean(state.tasksById[id]));
           const now = new Date().toISOString();
           const task: SprintTask = {
             id: taskId,
@@ -242,24 +283,32 @@ export function createBoardStore(options: { skipHydration?: boolean } = {}) {
           const state = get();
           const task = state.tasksById[taskId];
           if (!task) return { ok: false, error: { code: 'notFound', field: 'taskId', message: 'Task was not found.' } };
+          if (!isRecord(input as unknown)) return validationError('details', 'Task details must be an object.');
+          const editableKeys = new Set(['title', 'description', 'priority', 'assigneeId', 'dueDate']);
+          const unexpectedKey = Object.keys(input).find((key) => !editableKeys.has(key));
+          if (unexpectedKey) return validationError('details', `Task field “${unexpectedKey}” cannot be updated here.`);
+          const editableInput = input as UpdateTaskInput;
           const next = {
-            title: input.title ?? task.title,
-            priority: input.priority ?? task.priority,
-            assigneeId: input.assigneeId ?? task.assigneeId,
-            dueDate: input.dueDate ?? task.dueDate,
+            title: editableInput.title ?? task.title,
+            priority: editableInput.priority ?? task.priority,
+            assigneeId: editableInput.assigneeId ?? task.assigneeId,
+            dueDate: editableInput.dueDate ?? task.dueDate,
           };
           const validation = validateTaskFields(next, state.knownAssigneeIds);
           if (!validation.ok) return validation;
+          const updatedTask: SprintTask = {
+            ...task,
+            title: next.title.trim(),
+            description: editableInput.description?.trim() ?? task.description,
+            priority: next.priority,
+            assigneeId: next.assigneeId,
+            dueDate: next.dueDate,
+            updatedAt: new Date().toISOString(),
+          };
           set((current) => ({
             tasksById: {
               ...current.tasksById,
-              [taskId]: {
-                ...task,
-                ...input,
-                title: next.title.trim(),
-                description: input.description?.trim() ?? task.description,
-                updatedAt: new Date().toISOString(),
-              },
+              [taskId]: updatedTask,
             },
           }));
           return { ok: true };
@@ -269,7 +318,8 @@ export function createBoardStore(options: { skipHydration?: boolean } = {}) {
           if (!state.tasksById[taskId]) return { ok: false, error: { code: 'notFound', field: 'taskId', message: 'Task was not found.' } };
           if (!body.trim()) return validationError('body', 'Comment cannot be empty.');
           if (!authorId.trim()) return validationError('assigneeId', 'A comment author is required.');
-          const commentId = uuid();
+          const commentIds = new Set(Object.values(state.commentsByTaskId).flat().map((comment) => comment.id));
+          const commentId = nextUniqueId('comment', generateId, (id) => commentIds.has(id));
           const comment: TaskComment = { id: commentId, taskId, authorId, body: body.trim(), createdAt: new Date().toISOString() };
           set((current) => ({
             commentsByTaskId: {

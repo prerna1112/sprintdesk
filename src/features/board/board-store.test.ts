@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SprintTask, TaskComment } from '../../domain/types';
+import type { BoardStateV1, SprintTask, TaskComment } from '../../domain/types';
 import {
+  BOARD_ID_GENERATION_ATTEMPTS,
   BOARD_STORAGE_KEY,
+  BoardIdCollisionError,
   createBoardStore,
   getBoardInvariantErrors,
+  selectBoardCounts,
+  type UpdateTaskInput,
 } from './board-store';
 
 const tasks: SprintTask[] = [
@@ -40,6 +44,20 @@ function initialize(store: ReturnType<typeof createBoardStore>) {
     currentSprintId: 's2',
     assigneeIds: ['u1', 'u2'],
   });
+}
+
+function validPersistedDomain(): BoardStateV1 {
+  return {
+    version: 1,
+    tasksById: Object.fromEntries(tasks.map((task) => [task.id, { ...task }])),
+    columnTaskIds: { backlog: ['a', 'c'], inProgress: ['b'], review: [], done: [] },
+    commentsByTaskId: { a: comments.map((comment) => ({ ...comment })) },
+    initializedFromSource: true,
+  };
+}
+
+function writePersistedDomain(domain: BoardStateV1): void {
+  localStorage.setItem(BOARD_STORAGE_KEY, JSON.stringify({ state: domain, version: 1 }));
 }
 
 describe('board store', () => {
@@ -133,6 +151,112 @@ describe('board store', () => {
     expect(getBoardInvariantErrors(store.getState())).toEqual([]);
   });
 
+  it('rejects protected or unknown update fields without any partial mutation', async () => {
+    const store = await ready(createBoardStore());
+    initialize(store);
+    const beforeTask = structuredClone(store.getState().tasksById.a);
+    const beforeColumns = structuredClone(store.getState().columnTaskIds);
+    const malicious = {
+      title: 'Compromised title',
+      id: 'evil',
+      status: 'done',
+      sprintId: 'evil-sprint',
+      createdAt: '1999-01-01T00:00:00.000Z',
+      completedAt: '1999-01-01T00:00:00.000Z',
+      order: 999,
+    } as unknown as UpdateTaskInput;
+
+    expect(store.getState().updateTask('a', malicious)).toMatchObject({
+      ok: false,
+      error: { code: 'validation', field: 'details' },
+    });
+    expect(store.getState().tasksById.a).toEqual(beforeTask);
+    expect(store.getState().columnTaskIds).toEqual(beforeColumns);
+    expect(getBoardInvariantErrors(store.getState())).toEqual([]);
+  });
+
+  it('retries colliding task and comment IDs until unique IDs are generated', async () => {
+    const generated = ['a', 'new-task', 'm1', 'new-comment'];
+    const generateId = vi.fn(() => generated.shift() ?? 'unused');
+    const store = await ready(createBoardStore({ generateId }));
+    initialize(store);
+
+    const taskResult = store.getState().addTask({
+      title: 'Unique task', priority: 'low', assigneeId: 'u1', dueDate: '2026-10-01',
+    });
+    expect(taskResult).toEqual({ ok: true, taskId: 'new-task' });
+    const commentResult = store.getState().addComment('a', 'Unique comment', 'u1');
+    expect(commentResult).toEqual({ ok: true, commentId: 'new-comment' });
+    expect(generateId).toHaveBeenCalledTimes(4);
+    expect(getBoardInvariantErrors(store.getState())).toEqual([]);
+  });
+
+  it('throws after bounded repeated task ID collisions without mutation', async () => {
+    const generateId = vi.fn(() => 'a');
+    const store = await ready(createBoardStore({ generateId }));
+    initialize(store);
+    const beforeTasks = structuredClone(store.getState().tasksById);
+    const beforeColumns = structuredClone(store.getState().columnTaskIds);
+
+    expect(() => store.getState().addTask({
+      title: 'Never added', priority: 'low', assigneeId: 'u1', dueDate: '2026-10-01',
+    })).toThrow(BoardIdCollisionError);
+    expect(generateId).toHaveBeenCalledTimes(BOARD_ID_GENERATION_ATTEMPTS);
+    expect(store.getState().tasksById).toEqual(beforeTasks);
+    expect(store.getState().columnTaskIds).toEqual(beforeColumns);
+  });
+
+  it('throws after bounded repeated comment ID collisions without mutation', async () => {
+    const generateId = vi.fn(() => 'm1');
+    const store = await ready(createBoardStore({ generateId }));
+    initialize(store);
+    const beforeComments = structuredClone(store.getState().commentsByTaskId);
+
+    expect(() => store.getState().addComment('a', 'Never added', 'u1')).toThrow(BoardIdCollisionError);
+    expect(generateId).toHaveBeenCalledTimes(BOARD_ID_GENERATION_ATTEMPTS);
+    expect(store.getState().commentsByTaskId).toEqual(beforeComments);
+  });
+
+  it.each([
+    ['non-done task with completedAt', (domain: BoardStateV1) => { domain.tasksById.a!.completedAt = '2026-08-20T00:00:00.000Z'; }],
+    ['done task without completedAt', (domain: BoardStateV1) => {
+      domain.tasksById.a!.status = 'done';
+      domain.tasksById.a!.completedAt = null;
+      domain.columnTaskIds.backlog = ['c'];
+      domain.columnTaskIds.done = ['a'];
+    }],
+    ['globally duplicate comment IDs', (domain: BoardStateV1) => {
+      domain.commentsByTaskId.b = [{ ...comments[0]!, taskId: 'b' }];
+    }],
+    ['an invalid comment timestamp', (domain: BoardStateV1) => {
+      domain.commentsByTaskId.a![0]!.createdAt = 'not-a-timestamp';
+    }],
+    ['an empty persisted comment body', (domain: BoardStateV1) => {
+      domain.commentsByTaskId.a![0]!.body = '   ';
+    }],
+  ])('fails safely when persisted data contains %s', async (_, corrupt) => {
+    const domain = validPersistedDomain();
+    corrupt(domain);
+    writePersistedDomain(domain);
+    const store = await ready(createBoardStore());
+    expect(store.getState().initializedFromSource).toBe(false);
+    expect(store.getState().tasksById).toEqual({});
+  });
+
+  it('reports completion and comment uniqueness invariant errors directly', () => {
+    const domain = validPersistedDomain();
+    domain.tasksById.a!.completedAt = '2026-08-20T00:00:00.000Z';
+    domain.tasksById.b!.status = 'done';
+    domain.columnTaskIds.inProgress = [];
+    domain.columnTaskIds.done = ['b'];
+    domain.commentsByTaskId.b = [{ ...comments[0]!, taskId: 'b' }];
+    expect(getBoardInvariantErrors(domain)).toEqual(expect.arrayContaining([
+      expect.stringContaining('Non-done task a'),
+      expect.stringContaining('Done task b'),
+      'Comment IDs must be globally unique.',
+    ]));
+  });
+
   it('persists and rehydrates only board domain data', async () => {
     let store = await ready(createBoardStore());
     initialize(store);
@@ -149,5 +273,15 @@ describe('board store', () => {
     const store = await ready(createBoardStore());
     initialize(store);
     expect(store.getState().getCounts()).toEqual({ backlog: 2, inProgress: 1, review: 0, done: 0, total: 3 });
+  });
+
+  it('selects initial and mutated board counts directly', async () => {
+    const store = await ready(createBoardStore());
+    expect(selectBoardCounts(store.getState())).toEqual({ backlog: 0, inProgress: 0, review: 0, done: 0, total: 0 });
+    initialize(store);
+    store.getState().moveTask({ taskId: 'a', toStatus: 'done', toIndex: 0 });
+    expect(selectBoardCounts(store.getState())).toEqual({ backlog: 1, inProgress: 1, review: 0, done: 1, total: 3 });
+    store.getState().deleteTask('b');
+    expect(selectBoardCounts(store.getState())).toEqual({ backlog: 1, inProgress: 0, review: 0, done: 1, total: 2 });
   });
 });
