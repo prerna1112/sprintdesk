@@ -1,11 +1,5 @@
-import { RouteShell } from './RouteShell';
+import { Dashboard } from '../features/dashboard';
 
 export default function DashboardRoute() {
-  return (
-    <RouteShell
-      eyebrow="Overview"
-      title="Dashboard"
-      description="The dashboard feature will consume validated data through the query layer."
-    />
-  );
+  return <Dashboard />;
 }
