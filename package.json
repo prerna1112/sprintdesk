@@ -13,6 +13,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build",
     "preview": "vite preview"
   },
   "dependencies": {

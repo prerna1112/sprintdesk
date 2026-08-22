@@ -6,8 +6,11 @@ Audit date: 2026-08-22
 
 This assignment mandates React Router v6. The lockfile currently resolves
 `react-router` and `react-router-dom` to 6.30.6, for which `npm audit` reports
-two moderate advisories. This is a documented constraint and mitigation, not a
-claim that the underlying vulnerabilities are fixed.
+two moderate advisories and zero high or critical advisories. This is a
+documented constraint and mitigation, not a claim that the underlying
+vulnerabilities are fixed. `npm audit --audit-level=high` is the release check;
+do not run `npm audit fix --force`, because it replaces the required Router v6
+with a breaking v7 release.
 
 SprintDesk is a client-rendered application and does not use React Router SSR,
 hydration, or error-deserialization APIs. Never pass user-controlled data to
@@ -23,6 +26,9 @@ control-character, encoded bypass, and malformed-encoding destinations.
 Migration to React Router v7 is planned when the assignment constraint is
 relaxed. Until then, the two moderate audit findings remain an explicit
 security exception and should be re-evaluated whenever dependencies change.
+
+SprintDesk contains no application secrets. `VITE_API_BASE_URL` is an optional
+public client-side build variable and must never contain a credential.
 
 ## Supported local runtime
 
