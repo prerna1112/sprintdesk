@@ -14,8 +14,13 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler): () => void
 }
 
 export function clearAuthSession(): void {
-  refreshTokenStorage.clear();
-  useAuthStore.getState().clearSession();
+  try {
+    refreshTokenStorage.clear();
+  } catch {
+    // Browser storage can be unavailable; memory invalidation must still win.
+  } finally {
+    useAuthStore.getState().clearSession();
+  }
 }
 
 export function expireAuthSession(): void {
@@ -24,6 +29,9 @@ export function expireAuthSession(): void {
 }
 
 export function logout(queryClient: QueryClient): void {
-  clearAuthSession();
-  queryClient.clear();
+  try {
+    clearAuthSession();
+  } finally {
+    queryClient.clear();
+  }
 }

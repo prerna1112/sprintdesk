@@ -3,117 +3,82 @@ import { expireAuthSession } from '../../features/auth/session';
 import { useAuthStore } from '../../features/auth/auth-store';
 import type { AuthTokens } from '../../features/auth/types';
 import { authService } from './auth-service';
+import { AuthenticatedFetchError, throwIfAborted } from './auth-errors';
+import {
+  createSessionRefreshCoordinator,
+  type RefreshSessionSnapshot,
+  type SessionRefreshCoordinator,
+} from './session-refresh-coordinator';
 
 const REFRESH_WINDOW_MS = 5_000;
 
-interface SessionSnapshot {
-  accessToken: string | null;
-  accessTokenExpiresAt: number | null;
-  sessionGeneration: number;
-}
-
-class SupersededRefreshError extends Error {
-  constructor() {
-    super('The session changed while a token refresh was in progress.');
-    this.name = 'SupersededRefreshError';
-  }
-}
-
 interface AuthenticatedFetchOptions {
   fetchImpl?: typeof fetch;
-  getSession: () => SessionSnapshot;
+  getSession: () => RefreshSessionSnapshot;
   refresh: (refreshToken: string) => Promise<AuthTokens>;
   updateSession: (tokens: AuthTokens) => void;
   storage: RefreshTokenStorage;
   onUnauthorized: () => void;
+  refreshCoordinator?: SessionRefreshCoordinator;
   now?: () => number;
 }
 
-export class AuthenticatedFetchError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = 'AuthenticatedFetchError';
-  }
-}
+export { AuthenticatedFetchError } from './auth-errors';
 
 export function createAuthenticatedFetch({
-  fetchImpl = fetch,
+  fetchImpl,
   getSession,
   refresh,
   updateSession,
   storage,
   onUnauthorized,
+  refreshCoordinator,
   now = Date.now,
 }: AuthenticatedFetchOptions): typeof fetch {
-  let refreshPromise: Promise<AuthTokens> | null = null;
-
-  async function refreshOnce(): Promise<AuthTokens> {
-    if (refreshPromise) return refreshPromise;
-
-    refreshPromise = (async () => {
-      const refreshToken = storage.get();
-      if (!refreshToken) throw new AuthenticatedFetchError('Your session has expired. Please sign in again.');
-      const sessionAtStart = getSession();
-      let tokens: AuthTokens;
-      try {
-        tokens = await refresh(refreshToken);
-      } catch (error) {
-        const currentSession = getSession();
-        if (currentSession.sessionGeneration !== sessionAtStart.sessionGeneration
-          || currentSession.accessToken !== sessionAtStart.accessToken
-          || storage.get() !== refreshToken) {
-          throw new SupersededRefreshError();
-        }
-        throw error;
-      }
-
-      const currentSession = getSession();
-      if (currentSession.sessionGeneration !== sessionAtStart.sessionGeneration
-        || currentSession.accessToken !== sessionAtStart.accessToken
-        || storage.get() !== refreshToken) {
-        throw new SupersededRefreshError();
-      }
-
-      storage.set(tokens.refreshToken);
-      updateSession(tokens);
-      return tokens;
-    })();
-
-    try {
-      return await refreshPromise;
-    } catch (error) {
-      if (error instanceof SupersededRefreshError) {
-        throw new AuthenticatedFetchError(error.message, { cause: error });
-      }
-      storage.clear();
-      onUnauthorized();
-      throw new AuthenticatedFetchError('Your session has expired. Please sign in again.', { cause: error });
-    } finally {
-      refreshPromise = null;
-    }
-  }
+  const coordinator = refreshCoordinator ?? createSessionRefreshCoordinator({
+    getSession,
+    refresh,
+    updateSession,
+    storage,
+    onUnauthorized,
+  });
 
   return async function authenticatedFetch(input, init = {}) {
+    const signal = init.signal === undefined
+      ? input instanceof Request ? input.signal : undefined
+      : init.signal ?? undefined;
+    throwIfAborted(signal);
+
     if (input instanceof Request && input.bodyUsed) {
-      throw new AuthenticatedFetchError('A request whose body has already been read cannot be authenticated or retried.');
+      throw new AuthenticatedFetchError(
+        'A request whose body has already been read cannot be authenticated or retried.',
+        { code: 'request_not_replayable' },
+      );
     }
     if (typeof ReadableStream !== 'undefined' && init.body instanceof ReadableStream) {
-      throw new AuthenticatedFetchError('Streaming request bodies cannot be retried safely.');
+      throw new AuthenticatedFetchError(
+        'Streaming request bodies cannot be retried safely.',
+        { code: 'request_not_replayable' },
+      );
     }
 
     let session = getSession();
     if (!session.accessToken) {
-      await refreshOnce();
+      await coordinator.refresh(signal);
       session = getSession();
     } else if (session.accessTokenExpiresAt === null
       || session.accessTokenExpiresAt <= now() + REFRESH_WINDOW_MS) {
-      await refreshOnce();
+      await coordinator.refresh(signal);
       session = getSession();
     }
+    throwIfAborted(signal);
 
     if (!session.accessToken) {
       onUnauthorized();
-      throw new AuthenticatedFetchError('No authenticated session is available.');
+      throw new AuthenticatedFetchError(
+        'No authenticated session is available.',
+        { code: 'no_session' },
+      );
     }
 
     const originalHeaders = new Headers(input instanceof Request ? input.headers : undefined);
@@ -125,33 +90,65 @@ export function createAuthenticatedFetch({
       request = new Request(input, { ...init, headers: originalHeaders });
       request.clone();
     } catch (error) {
-      throw new AuthenticatedFetchError('This request body cannot be replayed safely.', { cause: error });
+      throw new AuthenticatedFetchError(
+        'This request body cannot be replayed safely.',
+        { cause: error, code: 'request_not_replayable' },
+      );
     }
 
     const tokenUsed = session.accessToken;
-    const response = await fetchImpl(request.clone());
+    const generationUsed = session.sessionGeneration;
+    const response = await (fetchImpl ?? fetch)(request.clone());
     if (response.status !== 401) return response;
 
-    const currentToken = getSession().accessToken;
+    throwIfAborted(signal);
+    let currentSession = getSession();
+    if (currentSession.sessionGeneration !== generationUsed) {
+      throw new AuthenticatedFetchError(
+        'The session changed before the request could be retried.',
+        { code: 'session_changed' },
+      );
+    }
+    const currentToken = currentSession.accessToken;
     if (!currentToken || currentToken === tokenUsed) {
-      await refreshOnce();
+      await coordinator.refresh(signal);
     }
 
-    const retryToken = getSession().accessToken;
+    throwIfAborted(signal);
+    currentSession = getSession();
+    if (currentSession.sessionGeneration !== generationUsed) {
+      throw new AuthenticatedFetchError(
+        'The session changed before the request could be retried.',
+        { code: 'session_changed' },
+      );
+    }
+    const retryToken = currentSession.accessToken;
     if (!retryToken) {
       onUnauthorized();
-      throw new AuthenticatedFetchError('No authenticated session is available.');
+      throw new AuthenticatedFetchError(
+        'No authenticated session is available.',
+        { code: 'no_session' },
+      );
     }
     const retryHeaders = new Headers(request.headers);
     retryHeaders.set('Authorization', `Bearer ${retryToken}`);
-    return fetchImpl(new Request(request.clone(), { headers: retryHeaders }));
+    return (fetchImpl ?? fetch)(new Request(request.clone(), { headers: retryHeaders }));
   };
 }
 
-export const authenticatedFetch = createAuthenticatedFetch({
+export const sessionRefreshCoordinator = createSessionRefreshCoordinator({
   getSession: () => useAuthStore.getState(),
-  refresh: authService.refresh,
+  refresh: (refreshToken) => authService.refresh(refreshToken),
   updateSession: (tokens) => useAuthStore.getState().refreshSession(tokens),
   storage: refreshTokenStorage,
   onUnauthorized: expireAuthSession,
+});
+
+export const authenticatedFetch = createAuthenticatedFetch({
+  getSession: () => useAuthStore.getState(),
+  refresh: (refreshToken) => authService.refresh(refreshToken),
+  updateSession: (tokens) => useAuthStore.getState().refreshSession(tokens),
+  storage: refreshTokenStorage,
+  onUnauthorized: expireAuthSession,
+  refreshCoordinator: sessionRefreshCoordinator,
 });

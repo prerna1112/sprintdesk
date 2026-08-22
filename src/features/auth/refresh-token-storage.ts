@@ -5,6 +5,18 @@ interface StoredRefreshToken {
   refreshToken: string;
 }
 
+export type RefreshTokenStorageOperation = 'read' | 'write' | 'clear';
+
+export class RefreshTokenStorageError extends Error {
+  constructor(
+    readonly operation: RefreshTokenStorageOperation,
+    options?: ErrorOptions,
+  ) {
+    super(`Unable to ${operation} the persisted refresh token.`, options);
+    this.name = 'RefreshTokenStorageError';
+  }
+}
+
 function isStoredRefreshToken(value: unknown): value is StoredRefreshToken {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
@@ -25,7 +37,12 @@ export function createRefreshTokenStorage(
 ): RefreshTokenStorage {
   return {
     get() {
-      const value = storage.getItem(AUTH_REFRESH_STORAGE_KEY);
+      let value: string | null;
+      try {
+        value = storage.getItem(AUTH_REFRESH_STORAGE_KEY);
+      } catch (error) {
+        throw new RefreshTokenStorageError('read', { cause: error });
+      }
       if (!value) return null;
 
       try {
@@ -35,7 +52,11 @@ export function createRefreshTokenStorage(
         // Invalid persisted data is removed below.
       }
 
-      storage.removeItem(AUTH_REFRESH_STORAGE_KEY);
+      try {
+        storage.removeItem(AUTH_REFRESH_STORAGE_KEY);
+      } catch (error) {
+        throw new RefreshTokenStorageError('clear', { cause: error });
+      }
       return null;
     },
     set(refreshToken) {
@@ -43,12 +64,24 @@ export function createRefreshTokenStorage(
         throw new Error('A non-empty refresh token is required');
       }
       const value: StoredRefreshToken = { version: 1, refreshToken };
-      storage.setItem(AUTH_REFRESH_STORAGE_KEY, JSON.stringify(value));
+      try {
+        storage.setItem(AUTH_REFRESH_STORAGE_KEY, JSON.stringify(value));
+      } catch (error) {
+        throw new RefreshTokenStorageError('write', { cause: error });
+      }
     },
     clear() {
-      storage.removeItem(AUTH_REFRESH_STORAGE_KEY);
+      try {
+        storage.removeItem(AUTH_REFRESH_STORAGE_KEY);
+      } catch (error) {
+        throw new RefreshTokenStorageError('clear', { cause: error });
+      }
     },
   };
 }
 
-export const refreshTokenStorage = createRefreshTokenStorage(window.localStorage);
+export const refreshTokenStorage = createRefreshTokenStorage({
+  getItem: (key) => window.localStorage.getItem(key),
+  setItem: (key, value) => window.localStorage.setItem(key, value),
+  removeItem: (key) => window.localStorage.removeItem(key),
+});

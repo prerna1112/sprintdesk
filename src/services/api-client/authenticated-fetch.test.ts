@@ -28,7 +28,7 @@ function setup(options: { expiresAt?: number; fetchImpl?: typeof fetch } = {}) {
       sessionGeneration: session.sessionGeneration,
     };
   });
-  const onUnauthorized = vi.fn();
+  const onUnauthorized = vi.fn(() => storage.clear());
   const fetchImpl = options.fetchImpl ?? vi.fn(async () => new Response(null, { status: 200 }));
   const authenticatedFetch = createAuthenticatedFetch({
     fetchImpl, getSession: () => session, refresh, updateSession, storage, onUnauthorized, now: () => 10_000,
@@ -105,6 +105,132 @@ describe('authenticatedFetch', () => {
     ]);
     expect([first.status, second.status]).toEqual([200, 200]);
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('never replays an old request under a replacement session', async () => {
+    let resolveInitial!: (response: Response) => void;
+    const fetchImpl = vi.fn(() => new Promise<Response>((resolve) => {
+      resolveInitial = resolve;
+    }));
+    const context = setup({ fetchImpl });
+
+    const request = context.authenticatedFetch('https://api.test/items');
+    context.replaceSession('replacement-access', 90_000);
+    context.storage.set('replacement-refresh');
+    resolveInitial(new Response(null, { status: 401 }));
+
+    const error = await request.catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(AuthenticatedFetchError);
+    expect((error as AuthenticatedFetchError).code).toBe('session_changed');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(context.refresh).not.toHaveBeenCalled();
+    expect(context.storage.get()).toBe('replacement-refresh');
+    expect(context.onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('normalizes one shared refresh failure for every concurrent caller', async () => {
+    const context = setup({ expiresAt: 14_000 });
+    let rejectRefresh!: (reason: unknown) => void;
+    context.refresh.mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectRefresh = reject;
+    }));
+
+    const first = context.authenticatedFetch('https://api.test/one').catch((error: unknown) => error);
+    const second = context.authenticatedFetch('https://api.test/two').catch((error: unknown) => error);
+    rejectRefresh(new Error('refresh failed'));
+    const [firstError, secondError] = await Promise.all([first, second]);
+
+    expect(firstError).toBeInstanceOf(AuthenticatedFetchError);
+    expect(secondError).toBe(firstError);
+    expect((firstError as AuthenticatedFetchError).code).toBe('session_expired');
+    expect(context.refresh).toHaveBeenCalledTimes(1);
+    expect(context.onUnauthorized).toHaveBeenCalledTimes(1);
+    expect(context.storage.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes a superseded shared refresh for every joiner without logout side effects', async () => {
+    const context = setup({ expiresAt: 14_000 });
+    let resolveRefresh!: (tokens: AuthTokens) => void;
+    context.refresh.mockImplementation(() => new Promise((resolve) => {
+      resolveRefresh = resolve;
+    }));
+
+    const first = context.authenticatedFetch('https://api.test/one').catch((error: unknown) => error);
+    const second = context.authenticatedFetch('https://api.test/two').catch((error: unknown) => error);
+    context.replaceSession('replacement-access', 90_000);
+    context.storage.set('replacement-refresh');
+    resolveRefresh(context.tokens);
+    const [firstError, secondError] = await Promise.all([first, second]);
+
+    expect(firstError).toBeInstanceOf(AuthenticatedFetchError);
+    expect(secondError).toBe(firstError);
+    expect((firstError as AuthenticatedFetchError).code).toBe('session_changed');
+    expect(context.refresh).toHaveBeenCalledTimes(1);
+    expect(context.onUnauthorized).not.toHaveBeenCalled();
+    expect(context.storage.get()).toBe('replacement-refresh');
+  });
+
+  it('rejects an already-aborted caller before proactive refresh', async () => {
+    const context = setup({ expiresAt: 14_000 });
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await context.authenticatedFetch(
+      'https://api.test/items',
+      { signal: controller.signal },
+    ).catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(DOMException);
+    expect((error as DOMException).name).toBe('AbortError');
+    expect(context.refresh).not.toHaveBeenCalled();
+    expect(context.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('lets an aborted proactive-refresh waiter leave while another joiner completes', async () => {
+    const context = setup({ expiresAt: 14_000 });
+    const controller = new AbortController();
+    let resolveRefresh!: (tokens: AuthTokens) => void;
+    context.refresh.mockImplementation(() => new Promise((resolve) => {
+      resolveRefresh = resolve;
+    }));
+
+    const abortedRequest = context.authenticatedFetch(
+      'https://api.test/aborted',
+      { signal: controller.signal },
+    );
+    const completingRequest = context.authenticatedFetch('https://api.test/completes');
+    expect(context.refresh).toHaveBeenCalledTimes(1);
+    controller.abort();
+
+    const abortError = await abortedRequest.catch((reason: unknown) => reason);
+    expect((abortError as DOMException).name).toBe('AbortError');
+    resolveRefresh(context.tokens);
+    await expect(completingRequest).resolves.toHaveProperty('status', 200);
+    expect(context.refresh).toHaveBeenCalledTimes(1);
+    expect(context.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry when aborted while waiting on a reactive refresh', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
+    const context = setup({ fetchImpl });
+    const controller = new AbortController();
+    let resolveRefresh!: (tokens: AuthTokens) => void;
+    context.refresh.mockImplementation(() => new Promise((resolve) => {
+      resolveRefresh = resolve;
+    }));
+
+    const request = context.authenticatedFetch(
+      'https://api.test/items',
+      { signal: controller.signal },
+    );
+    await vi.waitFor(() => expect(context.refresh).toHaveBeenCalledTimes(1));
+    controller.abort();
+
+    const error = await request.catch((reason: unknown) => reason);
+    expect((error as DOMException).name).toBe('AbortError');
+    resolveRefresh(context.tokens);
+    await vi.waitFor(() => expect(context.storage.set).toHaveBeenCalledWith('new-refresh'));
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it('cannot restore a session when logout happens during refresh', async () => {

@@ -30,7 +30,13 @@ export function ProtectedRoute() {
 
 export function GuestOnlyRoute() {
   const status = useAuthStore((state) => state.status);
+  const location = useLocation();
   if (status === 'unknown' || status === 'validating') return <SessionLoader />;
-  if (status === 'authenticated') return <Navigate replace to="/dashboard" />;
+  if (status === 'authenticated') {
+    const returnTo = location.state && typeof location.state === 'object'
+      ? (location.state as Record<string, unknown>).returnTo
+      : undefined;
+    return <Navigate replace to={safeInternalPath(returnTo, '/dashboard')} />;
+  }
   return <Outlet />;
 }

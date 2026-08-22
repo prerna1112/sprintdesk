@@ -1,42 +1,59 @@
 import { authService } from '../../services/api-client/auth-service';
+import {
+  sessionRefreshCoordinator,
+} from '../../services/api-client/authenticated-fetch';
+import type { SessionRefreshCoordinator } from '../../services/api-client/session-refresh-coordinator';
 import { useAuthStore } from './auth-store';
 import { refreshTokenStorage } from './refresh-token-storage';
+import { clearAuthSession } from './session';
 
 let bootstrapPromise: Promise<void> | null = null;
 
-export function bootstrapAuth(): Promise<void> {
+export function bootstrapAuth(
+  coordinator: SessionRefreshCoordinator = sessionRefreshCoordinator,
+): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise;
 
   bootstrapPromise = (async () => {
     const store = useAuthStore.getState();
     if (store.status === 'authenticated') return;
 
-    const refreshToken = refreshTokenStorage.get();
-    if (!refreshToken) {
-      store.clearSession();
+    try {
+      if (!refreshTokenStorage.get()) {
+        store.clearSession();
+        return;
+      }
+    } catch {
+      clearAuthSession();
       return;
     }
 
     const generationAtStart = store.sessionGeneration;
     store.beginValidation();
     try {
-      const tokens = await authService.refresh(refreshToken);
-      if (useAuthStore.getState().sessionGeneration !== generationAtStart
-        || refreshTokenStorage.get() !== refreshToken) return;
-      const user = await authService.me(tokens.accessToken);
-      if (useAuthStore.getState().sessionGeneration !== generationAtStart
-        || refreshTokenStorage.get() !== refreshToken) return;
-      refreshTokenStorage.set(tokens.refreshToken);
+      let accessToken = useAuthStore.getState().accessToken;
+      if (!accessToken) {
+        const tokens = await coordinator.refresh();
+        accessToken = tokens.accessToken;
+      }
+
+      if (useAuthStore.getState().sessionGeneration !== generationAtStart) return;
+      const user = await authService.me(accessToken);
+      const currentSession = useAuthStore.getState();
+      if (currentSession.sessionGeneration !== generationAtStart) return;
+      if (!currentSession.accessToken || currentSession.accessTokenExpiresAt === null) {
+        throw new Error('Session refresh completed without usable access metadata.');
+      }
       useAuthStore.getState().setSession({
-        accessToken: tokens.accessToken,
-        accessTokenExpiresAt: tokens.accessTokenExpiresAt,
+        accessToken: currentSession.accessToken,
+        accessTokenExpiresAt: currentSession.accessTokenExpiresAt,
         user,
       });
     } catch {
-      if (useAuthStore.getState().sessionGeneration !== generationAtStart
-        || refreshTokenStorage.get() !== refreshToken) return;
-      refreshTokenStorage.clear();
-      useAuthStore.getState().clearSession();
+      const current = useAuthStore.getState();
+      if (current.sessionGeneration !== generationAtStart
+        && (current.status === 'authenticated' || current.status === 'unauthenticated')) return;
+      clearAuthSession();
     }
   })();
 

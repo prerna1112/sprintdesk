@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { authService } from '../../services/api-client/auth-service';
+import { authenticatedFetch } from '../../services/api-client/authenticated-fetch';
 import { useAuthStore } from './auth-store';
 import { bootstrapAuth } from './bootstrap';
 import { refreshTokenStorage } from './refresh-token-storage';
@@ -50,6 +51,51 @@ describe('auth bootstrap', () => {
     resolveRefresh(tokens);
     await Promise.all([first, second]);
     expect(authService.me).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one session refresh with an overlapping authenticated request', async () => {
+    refreshTokenStorage.set('refresh');
+    let resolveRefresh!: (value: typeof tokens) => void;
+    vi.spyOn(authService, 'refresh').mockImplementation(() => new Promise((resolve) => {
+      resolveRefresh = resolve;
+    }));
+    vi.spyOn(authService, 'me').mockResolvedValue(user);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+
+    const bootstrapping = bootstrapAuth();
+    const request = authenticatedFetch('https://api.test/items');
+    expect(authService.refresh).toHaveBeenCalledTimes(1);
+
+    resolveRefresh(tokens);
+    const [, response] = await Promise.all([bootstrapping, request]);
+
+    expect(response.status).toBe(200);
+    expect(authService.refresh).toHaveBeenCalledTimes(1);
+    expect(authService.me).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().status).toBe('authenticated');
+  });
+
+  it('settles validation when a refresh shared with an authenticated request fails', async () => {
+    refreshTokenStorage.set('refresh');
+    let rejectRefresh!: (reason: unknown) => void;
+    vi.spyOn(authService, 'refresh').mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectRefresh = reject;
+    }));
+    const me = vi.spyOn(authService, 'me').mockResolvedValue(user);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+
+    const bootstrapping = bootstrapAuth();
+    const request = authenticatedFetch('https://api.test/items').catch((error: unknown) => error);
+    expect(authService.refresh).toHaveBeenCalledTimes(1);
+    rejectRefresh(new Error('invalid refresh'));
+
+    const [, requestError] = await Promise.all([bootstrapping, request]);
+    expect(requestError).toMatchObject({ name: 'AuthenticatedFetchError', code: 'session_expired' });
+    expect(useAuthStore.getState().status).toBe('unauthenticated');
+    expect(authService.refresh).toHaveBeenCalledTimes(1);
+    expect(me).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('does not restore persisted auth when the session is cleared during bootstrap refresh', async () => {
