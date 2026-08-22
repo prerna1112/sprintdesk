@@ -9,6 +9,25 @@ export function statusFromColumnDropId(id: string): TaskStatus | null {
   return BOARD_STATUSES.includes(status) ? status : null;
 }
 
+export function updateRetainedKeyboardTarget(
+  activeId: string,
+  overId: string | null,
+  retainedTarget: string | null,
+): string | null {
+  if (overId === null) return retainedTarget;
+  return overId === activeId ? null : overId;
+}
+
+export function resolveDragEndTarget(
+  activeId: string,
+  overId: string | null,
+  retainedKeyboardTarget: string | null,
+  isKeyboardDrag: boolean,
+): string | null {
+  if (overId && overId !== activeId) return overId;
+  return isKeyboardDrag ? retainedKeyboardTarget : null;
+}
+
 export function calculateDragMove(
   activeTaskId: string,
   overId: string | null,

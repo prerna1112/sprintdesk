@@ -24,7 +24,7 @@ import type { Assignee, MockData, SprintTask, TaskPriority, TaskStatus } from '.
 import { getAuthUserDisplayName, useAuthStore } from '../auth';
 import { Button, Drawer, Input, Modal, Select, useToast } from '../../components/ui';
 import { cn } from '../../components/ui/cn';
-import { calculateDragMove, columnDropId } from './board-dnd';
+import { calculateDragMove, columnDropId, resolveDragEndTarget, updateRetainedKeyboardTarget } from './board-dnd';
 import { BOARD_STATUSES, useBoardStore, type AddTaskInput, type BoardActionError, type MoveTaskInput } from './board-store';
 
 const columnLabels: Record<TaskStatus, string> = {
@@ -408,12 +408,19 @@ export function Board({ data }: { data: MockData }) {
     setActiveId(String(event.active.id));
   }
   function handleDragOver(event: DragOverEvent) {
-    if (event.over && String(event.over.id) !== String(event.active.id)) lastOverId.current = String(event.over.id);
+    lastOverId.current = updateRetainedKeyboardTarget(
+      String(event.active.id),
+      event.over ? String(event.over.id) : null,
+      lastOverId.current,
+    );
   }
   function handleDragEnd(event: DragEndEvent) {
-    const overId = event.over && String(event.over.id) !== String(event.active.id)
-      ? String(event.over.id)
-      : (event.activatorEvent instanceof KeyboardEvent ? lastOverId.current : null);
+    const overId = resolveDragEndTarget(
+      String(event.active.id),
+      event.over ? String(event.over.id) : null,
+      lastOverId.current,
+      event.activatorEvent instanceof KeyboardEvent,
+    );
     const move = calculateDragMove(String(event.active.id), overId, columnTaskIds);
     completedMove.current = move;
     if (move) moveTask(move);

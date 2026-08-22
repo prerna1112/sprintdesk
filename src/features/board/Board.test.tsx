@@ -23,6 +23,25 @@ function seedBoard() {
   });
 }
 
+function mockBoardRects() {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function getBoardRect(this: HTMLElement) {
+    const section = this.closest('section');
+    const sectionLabel = section?.querySelector('h2')?.textContent;
+    const columnIndex = ['Backlog', 'In Progress', 'Review', 'Done'].indexOf(sectionLabel ?? '');
+    const isTask = Boolean(this.querySelector('button[aria-label^="Move "]'));
+    const taskIndex = isTask && this.parentElement ? Array.from(this.parentElement.children).indexOf(this) : 0;
+    const left = Math.max(0, columnIndex) * 400;
+    const top = isTask ? taskIndex * 100 : 0;
+    const width = 300;
+    const height = isTask ? 80 : 1000;
+    return {
+      x: left, y: top, left, top, width, height,
+      right: left + width, bottom: top + height,
+      toJSON: () => ({}),
+    } as DOMRect;
+  });
+}
+
 describe('Board interactions', () => {
   beforeEach(() => {
     seedBoard();
@@ -42,33 +61,18 @@ describe('Board interactions', () => {
     expect(screen.getByRole('button', { name: /Move Build Kanban board/ })).toBeInTheDocument();
   });
 
-  it('moves a task with the keyboard sensor and announces the destination', async () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function getBoardRect(this: HTMLElement) {
-      const section = this.closest('section');
-      const sectionLabel = section?.querySelector('h2')?.textContent;
-      const columnIndex = ['Backlog', 'In Progress', 'Review', 'Done'].indexOf(sectionLabel ?? '');
-      const isTask = Boolean(this.querySelector('button[aria-label^="Move "]'));
-      const taskIndex = isTask && this.parentElement ? Array.from(this.parentElement.children).indexOf(this) : 0;
-      const left = Math.max(0, columnIndex) * 400;
-      const top = isTask ? taskIndex * 100 : 0;
-      const width = 300;
-      const height = isTask ? 80 : 1000;
-      return {
-        x: left, y: top, left, top, width, height,
-        right: left + width, bottom: top + height,
-        toJSON: () => ({}),
-      } as DOMRect;
-    });
+  it('clears a retained keyboard target when returning to the original position', async () => {
+    mockBoardRects();
     const user = userEvent.setup();
     renderWithProviders(<Board data={data} />);
+    const originalOrder = [...boardStore.getState().columnTaskIds.backlog];
     const handle = screen.getByRole('button', { name: 'Move Design notification system' });
     handle.focus();
-    await user.keyboard('[Space]');
-    await user.keyboard('[ArrowDown]');
+    await user.keyboard('[Space][ArrowDown]');
     expect(screen.getByText('Design notification system is over Backlog, position 3.')).toBeInTheDocument();
-    await user.keyboard('[Space]');
-    await waitFor(() => expect(boardStore.getState().columnTaskIds.backlog).toEqual(['7', '11', '4']));
-    expect(screen.getByText('Design notification system was moved to Backlog, position 3.')).toBeInTheDocument();
+    await user.keyboard('[ArrowUp][Space]');
+    await waitFor(() => expect(boardStore.getState().columnTaskIds.backlog).toEqual(originalOrder));
+    expect(screen.getByText('Task position was unchanged.')).toBeInTheDocument();
   });
 
   it('creates a task with accessible inline validation and success feedback', async () => {
