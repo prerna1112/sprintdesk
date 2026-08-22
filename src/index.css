@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --surface: 0 0% 100%;
+    --border: 214 32% 91%;
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+  }
+
+  .dark {
+    color-scheme: dark;
+    --background: 222 47% 7%;
+    --foreground: 210 40% 98%;
+    --surface: 222 47% 11%;
+    --border: 217 33% 18%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 222 47% 11%;
+    --muted: 217 33% 18%;
+    --muted-foreground: 215 20% 65%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply bg-background text-foreground;
+  }
+
+  body {
+    @apply m-0 min-h-screen bg-background font-sans text-foreground antialiased;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-background;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
