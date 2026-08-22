@@ -1,4 +1,8 @@
 import { useEffect, useRef, type RefObject } from 'react';
+import {
+  GLOBAL_LIVE_LAYER_SELECTOR,
+  isInGlobalLiveLayer,
+} from './globalLiveLayer';
 
 const focusableSelector = [
   'a[href]',
@@ -50,6 +54,7 @@ function isolateBackground(overlayRoot: HTMLElement | null) {
   const isolated: HTMLElement[] = [];
   for (const child of Array.from(document.body.children)) {
     if (!(child instanceof HTMLElement) || child === overlayRoot) continue;
+    if (child.matches(GLOBAL_LIVE_LAYER_SELECTOR)) continue;
     const existing = isolatedElements.get(child);
     if (existing) {
       existing.count += 1;
@@ -111,7 +116,8 @@ export function useAccessibleOverlay(
       if (
         isTopmost(registration) &&
         container &&
-        !container.contains(event.target as Node)
+        !container.contains(event.target as Node) &&
+        !isInGlobalLiveLayer(event.target)
       ) {
         initialTarget?.focus();
       }
@@ -126,24 +132,33 @@ export function useAccessibleOverlay(
       }
       if (event.key !== 'Tab' || !container) return;
 
-      const focusable = Array.from(
+      const dialogFocusable = Array.from(
         container.querySelectorAll<HTMLElement>(focusableSelector),
-      ).filter((element) => !element.hasAttribute('disabled'));
+      );
+      const liveLayerFocusable = Array.from(
+        document.querySelectorAll<HTMLElement>(GLOBAL_LIVE_LAYER_SELECTOR),
+      ).flatMap((layer) =>
+        Array.from(layer.querySelectorAll<HTMLElement>(focusableSelector)),
+      );
+      const focusable = [...dialogFocusable, ...liveLayerFocusable].filter(
+        (element) => !element.hasAttribute('disabled'),
+      );
       if (focusable.length === 0) {
         event.preventDefault();
         container.focus();
         return;
       }
 
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first?.focus();
-      }
+      event.preventDefault();
+      const currentIndex = focusable.indexOf(
+        document.activeElement as HTMLElement,
+      );
+      const offset = event.shiftKey ? -1 : 1;
+      const nextIndex =
+        currentIndex === -1
+          ? 0
+          : (currentIndex + offset + focusable.length) % focusable.length;
+      focusable[nextIndex]?.focus();
     }
 
     document.addEventListener('keydown', handleKeyDown);

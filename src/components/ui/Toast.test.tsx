@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { useRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from './Toast';
 import { useToast } from './toast-context';
 
 function ToastHarness() {
   const { dismiss, toast } = useToast();
+  const numberedToast = useRef(0);
   return (
     <div>
       <button onClick={() => toast({ title: 'Saved', variant: 'success' })}>Add</button>
@@ -21,6 +23,10 @@ function ToastHarness() {
         toast({ title: 'Persistent 1', duration: 0 });
         toast({ title: 'Persistent 2', duration: 0 });
       }}>Add persistent pair</button>
+      <button onClick={() => {
+        numberedToast.current += 1;
+        toast({ title: `Numbered ${numberedToast.current}`, duration: 10000 });
+      }}>Add numbered</button>
     </div>
   );
 }
@@ -112,6 +118,31 @@ describe('ToastProvider', () => {
     expect(screen.getByText('Saved')).toBeVisible();
     act(() => vi.advanceTimersByTime(1));
     expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('preserves a focused oldest toast when a fifth toast arrives', () => {
+    vi.useFakeTimers();
+    render(<ToastProvider><ToastHarness /></ToastProvider>);
+    const addNumbered = screen.getByRole('button', { name: 'Add numbered' });
+    for (let index = 0; index < 4; index += 1) fireEvent.click(addNumbered);
+
+    const protectedDismiss = screen.getByRole('button', {
+      name: 'Dismiss Numbered 1',
+    });
+    protectedDismiss.focus();
+    fireEvent.click(addNumbered);
+
+    expect(screen.getByText('Numbered 1')).toBeVisible();
+    expect(screen.queryByText('Numbered 2')).not.toBeInTheDocument();
+    expect(screen.getByText('Numbered 5')).toBeVisible();
+    expect(protectedDismiss).toHaveFocus();
+    expect(vi.getTimerCount()).toBeLessThanOrEqual(4);
+
+    addNumbered.focus();
+    act(() => vi.advanceTimersByTime(10000));
+    expect(screen.queryByText(/Numbered/)).not.toBeInTheDocument();
+    expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
   });
 });

@@ -7,9 +7,11 @@ import {
   type FocusEvent,
   type PropsWithChildren,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from './Button';
 import { Icon } from './Icon';
 import { cn } from './cn';
+import { GLOBAL_LIVE_LAYER_ATTRIBUTE } from './globalLiveLayer';
 import {
   ToastContext,
   type ToastInput,
@@ -18,6 +20,7 @@ import {
 
 interface ToastItem extends ToastInput {
   id: string;
+  returnFocus?: HTMLElement;
   variant: ToastVariant;
 }
 
@@ -39,9 +42,18 @@ const accents: Record<ToastVariant, string> = {
 
 export function ToastProvider({ children }: PropsWithChildren) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
   const counter = useRef(0);
   const timers = useRef(new Map<string, TimerState>());
   const pauseReasons = useRef(new Map<string, Set<PauseReason>>());
+
+  useEffect(() => {
+    const liveLayer = document.createElement('div');
+    liveLayer.setAttribute(GLOBAL_LIVE_LAYER_ATTRIBUTE, 'true');
+    document.body.appendChild(liveLayer);
+    setPortalRoot(liveLayer);
+    return () => liveLayer.remove();
+  }, []);
 
   const clearTimer = useCallback((id: string) => {
     const state = timers.current.get(id);
@@ -105,22 +117,52 @@ export function ToastProvider({ children }: PropsWithChildren) {
       const state = timers.current.get(id);
       if (!state || state.timer) return;
       startTimer(id, state.remaining);
+
+      setToasts((current) => {
+        if (current.length <= MAX_TOASTS) return current;
+        const removalIndex = current.findIndex(
+          (item) => (pauseReasons.current.get(item.id)?.size ?? 0) === 0,
+        );
+        if (removalIndex === -1) return current;
+        const removed = current[removalIndex];
+        if (removed) clearTimer(removed.id);
+        return current.filter((_, index) => index !== removalIndex);
+      });
     },
-    [startTimer],
+    [clearTimer, startTimer],
   );
 
   const toast = useCallback(
     (input: ToastInput) => {
       counter.current += 1;
       const id = `toast-${counter.current}`;
-      const item: ToastItem = { ...input, id, variant: input.variant ?? 'info' };
+      const returnFocus =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : undefined;
+      const item: ToastItem = {
+        ...input,
+        id,
+        returnFocus,
+        variant: input.variant ?? 'info',
+      };
       const duration = input.duration ?? 5000;
 
       setToasts((current) => {
         const all = [...current, item];
-        const evicted = all.slice(0, Math.max(0, all.length - MAX_TOASTS));
-        evicted.forEach((removed) => clearTimer(removed.id));
-        return all.slice(-MAX_TOASTS);
+        if (all.length <= MAX_TOASTS) return all;
+
+        const removalIndex = current.findIndex(
+          (candidate) =>
+            (pauseReasons.current.get(candidate.id)?.size ?? 0) === 0,
+        );
+        if (removalIndex === -1) {
+          // Preserve every interacted toast; the stack contracts when one unpauses.
+          return all;
+        }
+        const removed = all[removalIndex];
+        if (removed) clearTimer(removed.id);
+        return all.filter((_, index) => index !== removalIndex);
       });
       if (duration > 0) startTimer(id, duration);
       return id;
@@ -129,7 +171,11 @@ export function ToastProvider({ children }: PropsWithChildren) {
   );
 
   const handleManualDismiss = useCallback(
-    (id: string, button: HTMLButtonElement) => {
+    (
+      id: string,
+      button: HTMLButtonElement,
+      returnFocus: HTMLElement | undefined,
+    ) => {
       const toastElements = Array.from(
         document.querySelectorAll<HTMLElement>('[data-toast-id]'),
       );
@@ -137,10 +183,12 @@ export function ToastProvider({ children }: PropsWithChildren) {
         (element) => element.dataset.toastId === id,
       );
       const nextToast = toastElements[index + 1] ?? toastElements[index - 1];
-      const nextButton = nextToast?.querySelector<HTMLButtonElement>('button');
-      const shouldMoveFocus = document.activeElement === button && !!nextButton;
+      const focusTarget =
+        nextToast?.querySelector<HTMLButtonElement>('button') ?? returnFocus;
+      const shouldMoveFocus =
+        document.activeElement === button && !!focusTarget?.isConnected;
       dismiss(id);
-      if (shouldMoveFocus) queueMicrotask(() => nextButton.focus());
+      if (shouldMoveFocus) queueMicrotask(() => focusTarget.focus());
     },
     [dismiss],
   );
@@ -150,48 +198,59 @@ export function ToastProvider({ children }: PropsWithChildren) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div
-        aria-atomic="false"
-        aria-label="Notifications"
-        aria-live="polite"
-        className="pointer-events-none fixed inset-x-4 bottom-4 z-[60] ml-auto grid max-w-sm gap-2"
-        role="status"
-      >
-        {toasts.map((item) => (
-          <div
-            className={cn(
-              'pointer-events-auto rounded-xl border border-l-4 bg-elevated p-4 shadow-xl',
-              accents[item.variant],
-            )}
-            data-toast-id={item.id}
-            data-variant={item.variant}
-            key={item.id}
-            onBlur={(event: FocusEvent<HTMLDivElement>) => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                resumeTimer(item.id, 'focus');
-              }
-            }}
-            onFocus={() => pauseTimer(item.id, 'focus')}
-            onMouseEnter={() => pauseTimer(item.id, 'hover')}
-            onMouseLeave={() => resumeTimer(item.id, 'hover')}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-bold">{item.title}</p>
-                {item.description ? <div className="mt-1 text-sm text-muted-foreground">{item.description}</div> : null}
-              </div>
-              <Button
-                aria-label={`Dismiss ${item.title}`}
-                onClick={(event) => handleManualDismiss(item.id, event.currentTarget)}
-                size="icon"
-                variant="ghost"
-              >
-                <Icon name="close" />
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
+      {portalRoot
+        ? createPortal(
+            <div
+              aria-atomic="false"
+              aria-label="Notifications"
+              aria-live="polite"
+              className="pointer-events-none fixed inset-x-4 bottom-4 z-[60] ml-auto grid max-w-sm gap-2"
+              role="status"
+            >
+              {toasts.map((item) => (
+                <div
+                  className={cn(
+                    'pointer-events-auto rounded-xl border border-l-4 bg-elevated p-4 shadow-xl',
+                    accents[item.variant],
+                  )}
+                  data-toast-id={item.id}
+                  data-variant={item.variant}
+                  key={item.id}
+                  onBlur={(event: FocusEvent<HTMLDivElement>) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                      resumeTimer(item.id, 'focus');
+                    }
+                  }}
+                  onFocus={() => pauseTimer(item.id, 'focus')}
+                  onMouseEnter={() => pauseTimer(item.id, 'hover')}
+                  onMouseLeave={() => resumeTimer(item.id, 'hover')}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold">{item.title}</p>
+                      {item.description ? <div className="mt-1 text-sm text-muted-foreground">{item.description}</div> : null}
+                    </div>
+                    <Button
+                      aria-label={`Dismiss ${item.title}`}
+                      onClick={(event) =>
+                        handleManualDismiss(
+                          item.id,
+                          event.currentTarget,
+                          item.returnFocus,
+                        )
+                      }
+                      size="icon"
+                      variant="ghost"
+                    >
+                      <Icon name="close" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>,
+            portalRoot,
+          )
+        : null}
     </ToastContext.Provider>
   );
 }
