@@ -9,6 +9,14 @@ const REFRESH_WINDOW_MS = 5_000;
 interface SessionSnapshot {
   accessToken: string | null;
   accessTokenExpiresAt: number | null;
+  sessionGeneration: number;
+}
+
+class SupersededRefreshError extends Error {
+  constructor() {
+    super('The session changed while a token refresh was in progress.');
+    this.name = 'SupersededRefreshError';
+  }
 }
 
 interface AuthenticatedFetchOptions {
@@ -45,7 +53,27 @@ export function createAuthenticatedFetch({
     refreshPromise = (async () => {
       const refreshToken = storage.get();
       if (!refreshToken) throw new AuthenticatedFetchError('Your session has expired. Please sign in again.');
-      const tokens = await refresh(refreshToken);
+      const sessionAtStart = getSession();
+      let tokens: AuthTokens;
+      try {
+        tokens = await refresh(refreshToken);
+      } catch (error) {
+        const currentSession = getSession();
+        if (currentSession.sessionGeneration !== sessionAtStart.sessionGeneration
+          || currentSession.accessToken !== sessionAtStart.accessToken
+          || storage.get() !== refreshToken) {
+          throw new SupersededRefreshError();
+        }
+        throw error;
+      }
+
+      const currentSession = getSession();
+      if (currentSession.sessionGeneration !== sessionAtStart.sessionGeneration
+        || currentSession.accessToken !== sessionAtStart.accessToken
+        || storage.get() !== refreshToken) {
+        throw new SupersededRefreshError();
+      }
+
       storage.set(tokens.refreshToken);
       updateSession(tokens);
       return tokens;
@@ -54,6 +82,9 @@ export function createAuthenticatedFetch({
     try {
       return await refreshPromise;
     } catch (error) {
+      if (error instanceof SupersededRefreshError) {
+        throw new AuthenticatedFetchError(error.message, { cause: error });
+      }
       storage.clear();
       onUnauthorized();
       throw new AuthenticatedFetchError('Your session has expired. Please sign in again.', { cause: error });

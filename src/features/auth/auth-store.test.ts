@@ -7,6 +7,7 @@ const user = {
 
 describe('auth store', () => {
   it('keeps session state in memory and clears all sensitive fields', () => {
+    expect(useAuthStore.getState().sessionGeneration).toBe(0);
     useAuthStore.getState().beginValidation();
     expect(useAuthStore.getState().status).toBe('validating');
 
@@ -14,14 +15,14 @@ describe('auth store', () => {
       accessToken: 'secret-access', accessTokenExpiresAt: 123, user,
     });
     expect(useAuthStore.getState()).toMatchObject({
-      status: 'authenticated', accessToken: 'secret-access', accessTokenExpiresAt: 123, user,
+      status: 'authenticated', sessionGeneration: 1, accessToken: 'secret-access', accessTokenExpiresAt: 123, user,
     });
     expect(JSON.stringify(localStorage)).not.toContain('secret-access');
     expect(JSON.stringify(localStorage)).not.toContain('emily@example.com');
 
     useAuthStore.getState().clearSession();
     expect(useAuthStore.getState()).toMatchObject({
-      status: 'unauthenticated', accessToken: null, accessTokenExpiresAt: null, user: null,
+      status: 'unauthenticated', sessionGeneration: 2, accessToken: null, accessTokenExpiresAt: null, user: null,
     });
   });
 });

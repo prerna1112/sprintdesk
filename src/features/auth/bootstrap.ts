@@ -17,10 +17,15 @@ export function bootstrapAuth(): Promise<void> {
       return;
     }
 
+    const generationAtStart = store.sessionGeneration;
     store.beginValidation();
     try {
       const tokens = await authService.refresh(refreshToken);
+      if (useAuthStore.getState().sessionGeneration !== generationAtStart
+        || refreshTokenStorage.get() !== refreshToken) return;
       const user = await authService.me(tokens.accessToken);
+      if (useAuthStore.getState().sessionGeneration !== generationAtStart
+        || refreshTokenStorage.get() !== refreshToken) return;
       refreshTokenStorage.set(tokens.refreshToken);
       useAuthStore.getState().setSession({
         accessToken: tokens.accessToken,
@@ -28,6 +33,8 @@ export function bootstrapAuth(): Promise<void> {
         user,
       });
     } catch {
+      if (useAuthStore.getState().sessionGeneration !== generationAtStart
+        || refreshTokenStorage.get() !== refreshToken) return;
       refreshTokenStorage.clear();
       useAuthStore.getState().clearSession();
     }

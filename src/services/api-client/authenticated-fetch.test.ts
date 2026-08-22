@@ -4,7 +4,15 @@ import type { AuthTokens } from '../../features/auth/types';
 import { AuthenticatedFetchError, createAuthenticatedFetch } from './authenticated-fetch';
 
 function setup(options: { expiresAt?: number; fetchImpl?: typeof fetch } = {}) {
-  let session = { accessToken: 'old-access' as string | null, accessTokenExpiresAt: options.expiresAt ?? 20_000 };
+  let session: {
+    accessToken: string | null;
+    accessTokenExpiresAt: number | null;
+    sessionGeneration: number;
+  } = {
+    accessToken: 'old-access' as string | null,
+    accessTokenExpiresAt: options.expiresAt ?? 20_000,
+    sessionGeneration: 1,
+  };
   let storedToken: string | null = 'old-refresh';
   const storage: RefreshTokenStorage = {
     get: vi.fn(() => storedToken),
@@ -14,14 +22,35 @@ function setup(options: { expiresAt?: number; fetchImpl?: typeof fetch } = {}) {
   const tokens: AuthTokens = { accessToken: 'new-access', refreshToken: 'new-refresh', accessTokenExpiresAt: 60_000 };
   const refresh = vi.fn(async () => tokens);
   const updateSession = vi.fn((next: AuthTokens) => {
-    session = { accessToken: next.accessToken, accessTokenExpiresAt: next.accessTokenExpiresAt };
+    session = {
+      accessToken: next.accessToken,
+      accessTokenExpiresAt: next.accessTokenExpiresAt,
+      sessionGeneration: session.sessionGeneration,
+    };
   });
   const onUnauthorized = vi.fn();
   const fetchImpl = options.fetchImpl ?? vi.fn(async () => new Response(null, { status: 200 }));
   const authenticatedFetch = createAuthenticatedFetch({
     fetchImpl, getSession: () => session, refresh, updateSession, storage, onUnauthorized, now: () => 10_000,
   });
-  return { authenticatedFetch, fetchImpl: fetchImpl as ReturnType<typeof vi.fn>, refresh, storage, onUnauthorized, tokens };
+  return {
+    authenticatedFetch,
+    fetchImpl: fetchImpl as ReturnType<typeof vi.fn>,
+    refresh,
+    storage,
+    onUnauthorized,
+    tokens,
+    replaceSession: (
+      accessToken: string | null,
+      accessTokenExpiresAt: number | null,
+    ) => {
+      session = {
+        accessToken,
+        accessTokenExpiresAt,
+        sessionGeneration: session.sessionGeneration + 1,
+      };
+    },
+  };
 }
 
 describe('authenticatedFetch', () => {
@@ -76,6 +105,60 @@ describe('authenticatedFetch', () => {
     ]);
     expect([first.status, second.status]).toEqual([200, 200]);
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('cannot restore a session when logout happens during refresh', async () => {
+    const context = setup({ expiresAt: 14_000 });
+    let resolveRefresh!: (tokens: AuthTokens) => void;
+    context.refresh.mockImplementation(() => new Promise((resolve) => {
+      resolveRefresh = resolve;
+    }));
+
+    const request = context.authenticatedFetch('https://api.test/items');
+    context.replaceSession(null, null);
+    context.storage.clear();
+    resolveRefresh(context.tokens);
+
+    await expect(request).rejects.toThrow('session changed');
+    expect(context.storage.set).not.toHaveBeenCalled();
+    expect(context.storage.get()).toBeNull();
+    expect(context.onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('cannot overwrite a new login when an old refresh completes', async () => {
+    const context = setup({ expiresAt: 14_000 });
+    let resolveRefresh!: (tokens: AuthTokens) => void;
+    context.refresh.mockImplementation(() => new Promise((resolve) => {
+      resolveRefresh = resolve;
+    }));
+
+    const request = context.authenticatedFetch('https://api.test/items');
+    context.replaceSession('new-login-access', 90_000);
+    context.storage.set('new-login-refresh');
+    resolveRefresh(context.tokens);
+
+    await expect(request).rejects.toThrow('session changed');
+    expect(context.storage.get()).toBe('new-login-refresh');
+    expect(context.storage.set).toHaveBeenCalledTimes(1);
+    expect(context.onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('does not clear a new login when the superseded refresh rejects', async () => {
+    const context = setup({ expiresAt: 14_000 });
+    let rejectRefresh!: (reason: unknown) => void;
+    context.refresh.mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectRefresh = reject;
+    }));
+
+    const request = context.authenticatedFetch('https://api.test/items');
+    context.replaceSession('new-login-access', 90_000);
+    context.storage.set('new-login-refresh');
+    rejectRefresh(new Error('old request failed'));
+
+    await expect(request).rejects.toThrow('session changed');
+    expect(context.storage.get()).toBe('new-login-refresh');
+    expect(context.storage.clear).not.toHaveBeenCalled();
+    expect(context.onUnauthorized).not.toHaveBeenCalled();
   });
 
   it('clears and reports unauthorized when refresh fails', async () => {

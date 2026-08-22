@@ -3,6 +3,7 @@ import { authService } from '../../services/api-client/auth-service';
 import { useAuthStore } from './auth-store';
 import { bootstrapAuth } from './bootstrap';
 import { refreshTokenStorage } from './refresh-token-storage';
+import { clearAuthSession } from './session';
 
 const user = {
   id: '1', username: 'emilys', email: 'emily@example.com', firstName: 'Emily', lastName: 'Johnson', image: '',
@@ -49,5 +50,49 @@ describe('auth bootstrap', () => {
     resolveRefresh(tokens);
     await Promise.all([first, second]);
     expect(authService.me).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not restore persisted auth when the session is cleared during bootstrap refresh', async () => {
+    refreshTokenStorage.set('refresh');
+    let resolveRefresh!: (value: typeof tokens) => void;
+    vi.spyOn(authService, 'refresh').mockImplementation(() => new Promise((resolve) => {
+      resolveRefresh = resolve;
+    }));
+    const me = vi.spyOn(authService, 'me').mockResolvedValue(user);
+
+    const bootstrapping = bootstrapAuth();
+    clearAuthSession();
+    resolveRefresh(tokens);
+    await bootstrapping;
+
+    expect(useAuthStore.getState()).toMatchObject({ status: 'unauthenticated', user: null, accessToken: null });
+    expect(refreshTokenStorage.get()).toBeNull();
+    expect(me).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite a replacement login with an old bootstrap refresh', async () => {
+    refreshTokenStorage.set('old-refresh');
+    let resolveRefresh!: (value: typeof tokens) => void;
+    vi.spyOn(authService, 'refresh').mockImplementation(() => new Promise((resolve) => {
+      resolveRefresh = resolve;
+    }));
+    const me = vi.spyOn(authService, 'me').mockResolvedValue(user);
+
+    const bootstrapping = bootstrapAuth();
+    const replacementUser = { ...user, id: '2', username: 'new-user' };
+    useAuthStore.getState().setSession({
+      user: replacementUser,
+      accessToken: 'new-login-access',
+      accessTokenExpiresAt: 200_000,
+    });
+    refreshTokenStorage.set('new-login-refresh');
+    resolveRefresh(tokens);
+    await bootstrapping;
+
+    expect(useAuthStore.getState()).toMatchObject({
+      status: 'authenticated', user: replacementUser, accessToken: 'new-login-access',
+    });
+    expect(refreshTokenStorage.get()).toBe('new-login-refresh');
+    expect(me).not.toHaveBeenCalled();
   });
 });

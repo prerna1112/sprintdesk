@@ -1,9 +1,11 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { AppShell } from './AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
 import { GuestOnlyRoute, ProtectedRoute } from '../features/auth';
 
+const AppShell = lazy(() =>
+  import('./AppShell').then((module) => ({ default: module.AppShell })),
+);
 const LoginRoute = lazy(() => import('../routes/LoginRoute'));
 const DashboardRoute = lazy(() => import('../routes/DashboardRoute'));
 const BoardRoute = lazy(() => import('../routes/BoardRoute'));
