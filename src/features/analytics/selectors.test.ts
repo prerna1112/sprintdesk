@@ -8,6 +8,7 @@ import {
   selectPriorityTotals,
   selectSprintVelocity,
   selectStatusDistribution,
+  toLocalDateKey,
 } from './selectors';
 
 function initializedStore() {
@@ -54,5 +55,42 @@ describe('analytics selectors', () => {
 
     expect(store.getState().deleteTask('new-task').ok).toBe(true);
     expect(selectPriorityTotals(selectPriorityBreakdown(store.getState()))).toEqual({ high: 13, medium: 12, low: 5 });
+  });
+
+  it('groups equivalent completion instants with different offsets on one local date', () => {
+    const { store } = initializedStore();
+    const state = store.getState();
+    const first = { ...state.tasksById['1']!, completedAt: '2026-08-19T22:30:00.000Z' };
+    const second = { ...state.tasksById['5']!, completedAt: '2026-08-20T00:30:00.000+02:00' };
+    const snapshot = {
+      tasksById: { [first.id]: first, [second.id]: second },
+      columnTaskIds: { backlog: [], inProgress: [], review: [], done: [first.id, second.id] },
+    };
+
+    expect(new Date(first.completedAt!).getTime()).toBe(new Date(second.completedAt!).getTime());
+    expect(toLocalDateKey(first.completedAt!)).toBe(toLocalDateKey(second.completedAt!));
+    expect(selectCompletionTrend(snapshot)).toEqual([{
+      date: toLocalDateKey(first.completedAt!),
+      completed: 2,
+      cumulative: 2,
+    }]);
+  });
+
+  it('uses the local calendar day for completions near UTC midnight', () => {
+    const instant = '2026-08-19T23:55:00.000Z';
+    const localInstant = new Date(instant);
+    const expectedLocalKey = [
+      localInstant.getFullYear(),
+      String(localInstant.getMonth() + 1).padStart(2, '0'),
+      String(localInstant.getDate()).padStart(2, '0'),
+    ].join('-');
+
+    expect(toLocalDateKey(instant)).toBe(expectedLocalKey);
+    const { store } = initializedStore();
+    const boundaryTask = { ...store.getState().tasksById['1']!, id: 'boundary', completedAt: instant };
+    expect(selectCompletionTrend({
+      tasksById: { [boundaryTask.id]: boundaryTask },
+      columnTaskIds: { backlog: [], inProgress: [], review: [], done: [boundaryTask.id] },
+    })).toEqual([{ date: expectedLocalKey, completed: 1, cumulative: 1 }]);
   });
 });

@@ -4,6 +4,7 @@ import { Button, DataTable, Skeleton, type DataTableColumn } from '../../compone
 import type { TaskPriority, TaskStatus } from '../../domain/types';
 import { useBoardStore } from '../board';
 import { selectDashboardSummary, selectDashboardTasks, type DashboardTaskRow } from './selectors';
+import { useLocalToday } from './use-local-today';
 import { useWorkspaceBoard } from './use-workspace-board';
 
 const DASHBOARD_PATHS = {
@@ -23,11 +24,6 @@ const priorityClasses: Record<TaskPriority, string> = {
   medium: 'bg-priority-medium/15 text-priority-medium',
   low: 'bg-priority-low/15 text-priority-low',
 };
-
-function localToday(): string {
-  const today = new Date();
-  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-}
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(`${value.slice(0, 10)}T00:00:00`));
@@ -76,7 +72,7 @@ function SummaryCard({ label, value, detail }: { label: string; value: number | 
 export function Dashboard() {
   const { query, hasHydrated, initializedFromSource, persistenceError } = useWorkspaceBoard();
   const tasksById = useBoardStore((state) => state.tasksById);
-  const today = localToday();
+  const today = useLocalToday();
   const summary = useMemo(
     () => selectDashboardSummary({ tasksById }, query.data?.sprints ?? [], today),
     [query.data?.sprints, tasksById, today],

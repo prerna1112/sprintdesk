@@ -7,11 +7,13 @@ import { boardStore, resetBoardStore } from '../features/board';
 import { renderWithProviders } from '../test/render';
 import AnalyticsRoute from './AnalyticsRoute';
 
-type MockChartProps = PropsWithChildren<{ isAnimationActive?: boolean; name?: string }>;
+type MockChartProps = PropsWithChildren<{ accessibilityLayer?: boolean; isAnimationActive?: boolean; name?: string }>;
 
 vi.mock('recharts', () => {
   const container = ({ children }: MockChartProps) => <div data-testid="responsive-container">{children}</div>;
-  const group = ({ children }: MockChartProps) => <div>{children}</div>;
+  const group = ({ accessibilityLayer, children }: MockChartProps) => (
+    <div data-accessibility-layer={String(accessibilityLayer)} data-testid="chart-root">{children}</div>
+  );
   const primitive = () => <span />;
   const animated = ({ isAnimationActive, name }: MockChartProps) => (
     <span data-animation={String(isAnimationActive)} data-testid={`series-${name ?? 'unnamed'}`} />
@@ -63,6 +65,11 @@ describe('AnalyticsRoute', () => {
     expect(screen.getByRole('status', { name: 'Loading analytics' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Sprint velocity' })).toBeInTheDocument();
     expect(screen.getAllByTestId('responsive-container')).toHaveLength(4);
+    screen.getAllByTestId('chart-root').forEach((chart) => expect(chart).toHaveAttribute('data-accessibility-layer', 'false'));
+    screen.getAllByTestId('responsive-container').forEach((container) => {
+      expect(container.closest('[data-chart-visual]')).toHaveAttribute('aria-hidden', 'true');
+      expect(container.closest('[data-chart-visual]')).toHaveAttribute('tabindex', '-1');
+    });
 
     const velocity = screen.getByRole('heading', { name: 'Sprint velocity' }).closest('section');
     const status = screen.getByRole('heading', { name: 'Task status distribution' }).closest('section');
@@ -79,6 +86,10 @@ describe('AnalyticsRoute', () => {
     expect(within(status).getByText('Done').parentElement).toHaveTextContent('18');
     expect(within(priority).getByRole('row', { name: /Total/ })).toHaveTextContent('Total13125');
     expect(within(trend).getByText('18 tasks completed across 14 recorded dates.')).toBeInTheDocument();
+    expect(within(velocity).getByLabelText('Sprint velocity values')).not.toHaveAttribute('aria-hidden');
+    expect(within(status).getByLabelText('Task status distribution values')).not.toHaveAttribute('aria-hidden');
+    expect(within(priority).getByLabelText('Priority breakdown values')).not.toHaveAttribute('aria-hidden');
+    expect(within(trend).getByLabelText('Completion trend values')).not.toHaveAttribute('aria-hidden');
   });
 
   it('updates displayed chart summaries after a board mutation', async () => {

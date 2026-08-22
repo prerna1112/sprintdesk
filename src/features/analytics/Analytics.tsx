@@ -82,7 +82,7 @@ function ChartCard({ id, title, description, chart, summary }: {
     <section aria-labelledby={`${id}-title`} className="min-w-0 rounded-2xl border bg-surface p-4 shadow-sm sm:p-5">
       <h2 className="text-lg font-black" id={`${id}-title`}>{title}</h2>
       <p className="mt-1 text-sm leading-relaxed text-muted-foreground" id={`${id}-description`}>{description}</p>
-      <div className="mt-4 h-[17rem] min-h-[17rem] min-w-0 overflow-hidden">
+      <div aria-hidden="true" className="mt-4 h-[17rem] min-h-[17rem] min-w-0 overflow-hidden" data-chart-visual="" tabIndex={-1}>
         {chart}
       </div>
       <div aria-label={`${title} values`} className="mt-4 border-t pt-4 text-xs">
@@ -153,7 +153,7 @@ export function Analytics() {
         <ChartCard
           chart={velocity.some((item) => item.completed > 0) ? (
             <ResponsiveContainer height="100%" width="100%">
-              <BarChart data={velocity} margin={{ top: 8, right: 8, left: -20, bottom: 4 }}>
+              <BarChart accessibilityLayer={false} data={velocity} margin={{ top: 8, right: 8, left: -20, bottom: 4 }}>
                 <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="sprintName" minTickGap={20} stroke={CHART_COLORS.muted} tick={{ fontSize: 12 }} />
                 <YAxis allowDecimals={false} stroke={CHART_COLORS.muted} tick={{ fontSize: 12 }} width={42} />
@@ -175,7 +175,7 @@ export function Analytics() {
         <ChartCard
           chart={totalTasks > 0 ? (
             <ResponsiveContainer height="100%" width="100%">
-              <PieChart>
+              <PieChart accessibilityLayer={false}>
                 <Pie cx="50%" cy="44%" data={status} dataKey="count" innerRadius="43%" isAnimationActive={animate} nameKey="label" outerRadius="72%" paddingAngle={2}>
                   {status.map((item) => <Cell fill={CHART_COLORS[item.status]} key={item.status} />)}
                 </Pie>
@@ -197,7 +197,7 @@ export function Analytics() {
         <ChartCard
           chart={totalTasks > 0 ? (
             <ResponsiveContainer height="100%" width="100%">
-              <BarChart data={priorities} margin={{ top: 8, right: 8, left: -20, bottom: 4 }}>
+              <BarChart accessibilityLayer={false} data={priorities} margin={{ top: 8, right: 8, left: -20, bottom: 4 }}>
                 <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" minTickGap={12} stroke={CHART_COLORS.muted} tick={{ fontSize: 11 }} />
                 <YAxis allowDecimals={false} stroke={CHART_COLORS.muted} tick={{ fontSize: 12 }} width={42} />
@@ -227,7 +227,7 @@ export function Analytics() {
         <ChartCard
           chart={trend.length > 0 ? (
             <ResponsiveContainer height="100%" width="100%">
-              <LineChart data={trend} margin={{ top: 8, right: 12, left: -20, bottom: 4 }}>
+              <LineChart accessibilityLayer={false} data={trend} margin={{ top: 8, right: 12, left: -20, bottom: 4 }}>
                 <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="date" interval="preserveStartEnd" minTickGap={36} stroke={CHART_COLORS.muted} tick={{ fontSize: 11 }} tickFormatter={formatShortDate} />
                 <YAxis allowDecimals={false} stroke={CHART_COLORS.muted} tick={{ fontSize: 12 }} width={42} />
