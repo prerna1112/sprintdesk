@@ -47,14 +47,28 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
 export const STATUS_ORDER: TaskStatus[] = ['backlog', 'inProgress', 'review', 'done'];
 export const PRIORITY_ORDER: TaskPriority[] = ['high', 'medium', 'low'];
 
+function isValidDateOnly(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [, yearValue, monthValue, dayValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+  if (month < 1 || month > 12) return false;
+  return day >= 1 && day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 function tasksInBoardOrder(snapshot: BoardAnalyticsSnapshot): SprintTask[] {
   return STATUS_ORDER.flatMap((status) => snapshot.columnTaskIds[status])
     .map((taskId) => snapshot.tasksById[taskId])
     .filter((task): task is SprintTask => Boolean(task));
 }
 
-export function toLocalDateKey(instant: string): string {
-  const date = new Date(instant);
+export function toLocalDateKey(value: string): string {
+  // Date-only values are calendar keys, not instants. Parsing them as UTC would
+  // incorrectly shift them to the previous day in negative-offset timezones.
+  if (isValidDateOnly(value)) return value;
+  const date = new Date(value);
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');

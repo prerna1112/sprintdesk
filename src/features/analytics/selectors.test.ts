@@ -25,6 +25,13 @@ function initializedStore() {
 }
 
 describe('analytics selectors', () => {
+  it('preserves valid date-only calendar keys without UTC localization', () => {
+    // In a negative-offset locale, `new Date('2026-08-20')` can render as Aug 19.
+    // The explicit date-only branch keeps the application calendar key stable.
+    expect(toLocalDateKey('2026-08-20')).toBe('2026-08-20');
+    expect(toLocalDateKey('2026-02-29')).not.toBe('2026-02-29');
+  });
+
   it('derives all fresh-source chart baselines from the normalized board', () => {
     const { data, store } = initializedStore();
     const snapshot = store.getState();
