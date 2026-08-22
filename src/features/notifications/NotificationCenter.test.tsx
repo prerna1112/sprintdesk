@@ -72,13 +72,32 @@ describe('NotificationCenter', () => {
     await user.click(within(firstUnreadArticle).getByRole('button', {
       name: 'Mark Service update 5 as read, notification 1',
     }));
-    expect(within(drawer).getByRole('article', { name: 'Service update 5, read' })).toHaveFocus();
+    const stableReadControl = within(drawer).getByRole('button', {
+      name: 'Service update 5 is already read, notification 1',
+    });
+    expect(stableReadControl).toHaveFocus();
+    expect(stableReadControl).toHaveAttribute('aria-disabled', 'true');
+    await user.tab();
+    expect(within(drawer).getByRole('button', {
+      name: 'Mark Service update 4 as read, notification 2',
+    })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(stableReadControl).toHaveFocus();
     expect(within(drawer).getByText('7 unread')).toBeVisible();
-    await user.click(within(drawer).getByRole('button', { name: 'Mark all read' }));
+    await user.click(stableReadControl);
+    expect(within(drawer).getByText('7 unread')).toBeVisible();
+    const markAllControl = within(drawer).getByRole('button', { name: 'Mark all read' });
+    await user.click(markAllControl);
     const allCaughtUp = within(drawer).getByText('All caught up');
     expect(allCaughtUp).toBeVisible();
-    expect(allCaughtUp).toHaveFocus();
-    expect(drawer).toContainElement(document.activeElement as HTMLElement);
+    expect(markAllControl).toHaveFocus();
+    expect(markAllControl).toHaveAttribute('aria-disabled', 'true');
+    await user.click(markAllControl);
+    expect(within(drawer).getByText('All caught up')).toBeVisible();
+    await user.tab();
+    expect(stableReadControl).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(markAllControl).toHaveFocus();
   });
 
   it('paginates a fixture larger than twenty with latest items on page one', async () => {
@@ -107,14 +126,24 @@ describe('NotificationCenter', () => {
     expect(within(drawer).getByText('Fixture 1')).toBeVisible();
     const pageTwoStatus = within(drawer).getByText('Page 2 of 2');
     expect(pageTwoStatus).toBeVisible();
-    expect(pageTwoStatus).toHaveFocus();
+    const previousControl = within(drawer).getByRole('button', { name: 'Previous' });
+    expect(previousControl).toHaveFocus();
     expect(within(drawer).getByRole('button', { name: 'Next' })).toBeDisabled();
+    await user.tab();
+    expect(within(drawer).getByRole('button', { name: 'Close drawer' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(previousControl).toHaveFocus();
 
-    await user.click(within(drawer).getByRole('button', { name: 'Previous' }));
-    expect(within(drawer).getByText('Page 1 of 2')).toHaveFocus();
+    await user.click(previousControl);
+    const nextControl = within(drawer).getByRole('button', { name: 'Next' });
+    expect(nextControl).toHaveFocus();
     expect(within(drawer).getByRole('button', { name: 'Previous' })).toBeDisabled();
+    await user.tab();
+    expect(within(drawer).getByRole('button', { name: 'Close drawer' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(nextControl).toHaveFocus();
 
-    await user.click(within(drawer).getByRole('button', { name: 'Next' }));
+    await user.click(nextControl);
     await user.click(within(drawer).getByRole('button', { name: 'Close drawer' }));
     act(() => {
       notificationStore.getState().mergeNotifications([{

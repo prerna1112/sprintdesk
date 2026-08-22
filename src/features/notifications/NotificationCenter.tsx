@@ -31,10 +31,9 @@ export function NotificationCenter() {
     typeof document !== 'undefined' && document.hidden);
   const wasHidden = useRef(documentHidden);
   const previousNotificationCount = useRef(0);
-  const notificationElements = useRef(new Map<string, HTMLElement>());
-  const unreadStatusRef = useRef<HTMLParagraphElement>(null);
-  const pageStatusRef = useRef<HTMLParagraphElement>(null);
-  const pendingPageFocus = useRef(false);
+  const previousPageButtonRef = useRef<HTMLButtonElement>(null);
+  const nextPageButtonRef = useRef<HTMLButtonElement>(null);
+  const pendingPageFocus = useRef<'previous' | 'next' | null>(null);
   const { toast } = useToast();
   const authenticated = useAuthStore((state) => Boolean(state.accessToken && state.user));
   const hasHydrated = useNotificationStore((state) => state.hasHydrated);
@@ -111,9 +110,13 @@ export function NotificationCenter() {
   }, [page, totalPages]);
 
   useEffect(() => {
-    if (!pendingPageFocus.current) return;
-    pendingPageFocus.current = false;
-    queueMicrotask(() => pageStatusRef.current?.focus());
+    const focusTarget = pendingPageFocus.current;
+    if (!focusTarget) return;
+    pendingPageFocus.current = null;
+    queueMicrotask(() => {
+      if (focusTarget === 'previous') previousPageButtonRef.current?.focus();
+      else nextPageButtonRef.current?.focus();
+    });
   }, [page]);
 
   function openPanel() {
@@ -123,16 +126,15 @@ export function NotificationCenter() {
 
   function handleMarkRead(id: string) {
     markRead(id);
-    queueMicrotask(() => notificationElements.current.get(id)?.focus());
   }
 
   function handleMarkAllRead() {
+    if (unreadCount === 0) return;
     markAllRead();
-    queueMicrotask(() => unreadStatusRef.current?.focus());
   }
 
   function changePage(nextPage: number) {
-    pendingPageFocus.current = true;
+    pendingPageFocus.current = nextPage > page ? 'previous' : 'next';
     setPage(nextPage);
   }
 
@@ -172,11 +174,12 @@ export function NotificationCenter() {
       >
         <div className="grid gap-4">
           <div className="flex items-center justify-between gap-3 border-b pb-3">
-            <p className="text-sm text-muted-foreground" ref={unreadStatusRef} role="status" tabIndex={-1}>
+            <p className="text-sm text-muted-foreground" role="status">
               {unreadCount === 0 ? 'All caught up' : `${unreadCount} unread`}
             </p>
             <Button
-              disabled={unreadCount === 0}
+              aria-disabled={unreadCount === 0 || undefined}
+              className="aria-disabled:cursor-default aria-disabled:opacity-60"
               onClick={handleMarkAllRead}
               size="sm"
               variant="secondary"
@@ -226,11 +229,6 @@ export function NotificationCenter() {
                   <li className="py-4 first:pt-0" key={notification.id}>
                     <article
                       aria-label={`${notification.title}, ${unread ? 'unread' : 'read'}`}
-                      ref={(element) => {
-                        if (element) notificationElements.current.set(notification.id, element);
-                        else notificationElements.current.delete(notification.id);
-                      }}
-                      tabIndex={-1}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -245,16 +243,20 @@ export function NotificationCenter() {
                         <time className="text-xs text-muted-foreground" dateTime={notification.createdAt}>
                           {formatTimestamp(notification.createdAt)}
                         </time>
-                        {unread ? (
-                          <Button
-                            aria-label={`Mark ${notification.title} as read, notification ${(page - 1) * NOTIFICATION_PAGE_SIZE + index + 1}`}
-                            onClick={() => handleMarkRead(notification.id)}
-                            size="sm"
-                            variant="ghost"
-                          >
-                            Mark read
-                          </Button>
-                        ) : null}
+                        <Button
+                          aria-disabled={!unread || undefined}
+                          aria-label={unread
+                            ? `Mark ${notification.title} as read, notification ${(page - 1) * NOTIFICATION_PAGE_SIZE + index + 1}`
+                            : `${notification.title} is already read, notification ${(page - 1) * NOTIFICATION_PAGE_SIZE + index + 1}`}
+                          onClick={() => {
+                            if (unread) handleMarkRead(notification.id);
+                          }}
+                          className="aria-disabled:cursor-default aria-disabled:opacity-60"
+                          size="sm"
+                          variant="ghost"
+                        >
+                          {unread ? 'Mark read' : 'Read'}
+                        </Button>
                       </div>
                     </article>
                   </li>
@@ -268,15 +270,17 @@ export function NotificationCenter() {
               <Button
                 disabled={page === 1}
                 onClick={() => changePage(Math.max(1, page - 1))}
+                ref={previousPageButtonRef}
                 size="sm"
                 variant="secondary"
               >
                 Previous
               </Button>
-              <p className="text-sm" ref={pageStatusRef} role="status" tabIndex={-1}>Page {page} of {totalPages}</p>
+              <p className="text-sm" role="status">Page {page} of {totalPages}</p>
               <Button
                 disabled={page === totalPages}
                 onClick={() => changePage(Math.min(totalPages, page + 1))}
+                ref={nextPageButtonRef}
                 size="sm"
                 variant="secondary"
               >
