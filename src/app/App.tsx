@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
+import { GuestOnlyRoute, ProtectedRoute } from '../features/auth';
 
 const LoginRoute = lazy(() => import('../routes/LoginRoute'));
 const DashboardRoute = lazy(() => import('../routes/DashboardRoute'));
@@ -21,11 +22,15 @@ export default function App() {
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
-        <Route path="/login" element={<LoginRoute />} />
-        <Route element={<AppShell />}>
-          <Route path="/dashboard" element={<DashboardRoute />} />
-          <Route path="/board" element={<BoardRoute />} />
-          <Route path="/analytics" element={<AnalyticsRoute />} />
+        <Route element={<GuestOnlyRoute />}>
+          <Route path="/login" element={<LoginRoute />} />
+        </Route>
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppShell />}>
+            <Route path="/dashboard" element={<DashboardRoute />} />
+            <Route path="/board" element={<BoardRoute />} />
+            <Route path="/analytics" element={<AnalyticsRoute />} />
+          </Route>
         </Route>
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

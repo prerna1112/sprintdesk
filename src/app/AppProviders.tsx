@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { ToastProvider } from '../components/ui/Toast';
+import { AuthProvider } from '../features/auth';
 import { ThemeProvider } from '../features/theme';
 
 const queryClient = new QueryClient({
@@ -18,7 +19,7 @@ export function AppProviders({ children }: PropsWithChildren) {
           <BrowserRouter
             future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
           >
-            {children}
+            <AuthProvider>{children}</AuthProvider>
           </BrowserRouter>
         </ToastProvider>
       </ThemeProvider>

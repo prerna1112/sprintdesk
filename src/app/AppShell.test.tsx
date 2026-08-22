@@ -1,10 +1,20 @@
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { renderWithProviders } from '../test/render';
+import { useAuthStore } from '../features/auth';
+
+const testUser = {
+  id: '1', username: 'emilys', email: 'emily@example.com', firstName: 'Emily', lastName: 'Johnson', image: '',
+};
 
 describe('AppShell', () => {
+  beforeEach(() => {
+    useAuthStore.getState().setSession({
+      accessToken: 'access', accessTokenExpiresAt: Date.now() + 60_000, user: testUser,
+    });
+  });
   it('provides skip navigation and active primary navigation', async () => {
     renderWithProviders(<App />, { route: '/dashboard' });
 

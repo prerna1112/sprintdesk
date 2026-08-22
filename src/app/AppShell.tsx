@@ -5,6 +5,7 @@ import { Drawer } from '../components/ui/Drawer';
 import { Icon, type IconName } from '../components/ui/Icon';
 import { ThemeControl } from '../features/theme';
 import { cn } from '../components/ui/cn';
+import { getAuthUserDisplayName, useAuthStore, useLogout } from '../features/auth';
 
 const navigation: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -39,7 +40,10 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AppShell() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const location = useLocation();
+  const user = useAuthStore((state) => state.user);
+  const handleLogout = useLogout();
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
@@ -54,6 +58,10 @@ export function AppShell() {
   const pageTitle =
     navigation.find((item) => location.pathname.startsWith(item.to))?.label ??
     'SprintDesk';
+  const displayName = user ? getAuthUserDisplayName(user) : 'SprintDesk user';
+  const initials = user
+    ? `${user.firstName[0] ?? ''}${user.lastName[0] ?? ''}`.toUpperCase() || user.username[0]?.toUpperCase()
+    : 'S';
 
   return (
     <div className="min-h-screen bg-background">
@@ -97,6 +105,24 @@ export function AppShell() {
               <Icon name="bell" />
             </Button>
             <ThemeControl />
+            <div className="ml-1 hidden items-center gap-2 border-l pl-3 sm:flex">
+              {user?.image && !avatarFailed ? (
+                <img
+                  alt=""
+                  className="size-8 rounded-full bg-muted object-cover"
+                  onError={() => setAvatarFailed(true)}
+                  src={user.image}
+                />
+              ) : (
+                <span aria-hidden="true" className="grid size-8 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                  {initials}
+                </span>
+              )}
+              <span className="max-w-32 truncate text-sm font-semibold">{displayName}</span>
+            </div>
+            <Button aria-label={`Log out ${displayName}`} onClick={handleLogout} size="sm" variant="secondary">
+              Logout
+            </Button>
           </div>
         </header>
 
