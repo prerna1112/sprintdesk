@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import sourceJson from '../../public/mock-data.json';
 import { renderWithProviders } from '../test/render';
-import { resetBoardStore } from '../features/board';
+import { BOARD_PERSISTENCE_WARNING, boardStore, resetBoardStore } from '../features/board';
 import BoardRoute from './BoardRoute';
 
 function sourceResponse() {
@@ -36,5 +36,12 @@ describe('BoardRoute', () => {
     await user.click(screen.getByRole('button', { name: 'Retry loading board' }));
     expect(await screen.findByLabelText('18 tasks')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('warns accessibly when board changes are not durable', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(sourceResponse()));
+    boardStore.setState({ persistenceError: BOARD_PERSISTENCE_WARNING });
+    renderWithProviders(<BoardRoute />);
+    expect(await screen.findByRole('status', { name: '' })).toHaveTextContent(BOARD_PERSISTENCE_WARNING);
   });
 });

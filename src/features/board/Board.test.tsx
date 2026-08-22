@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import sourceJson from '../../../public/mock-data.json';
 import { parseAndAdaptMockData } from '../../data/mock-data.adapter';
 import { useAuthStore } from '../auth';
@@ -40,6 +40,35 @@ describe('Board interactions', () => {
     expect(screen.getAllByText(/Due|Overdue/).length).toBeGreaterThan(0);
     expect(screen.getByLabelText('Sprint task board')).toHaveAttribute('data-keyboard-sensor', 'sortableKeyboardCoordinates');
     expect(screen.getByRole('button', { name: /Move Build Kanban board/ })).toBeInTheDocument();
+  });
+
+  it('moves a task with the keyboard sensor and announces the destination', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function getBoardRect(this: HTMLElement) {
+      const section = this.closest('section');
+      const sectionLabel = section?.querySelector('h2')?.textContent;
+      const columnIndex = ['Backlog', 'In Progress', 'Review', 'Done'].indexOf(sectionLabel ?? '');
+      const isTask = Boolean(this.querySelector('button[aria-label^="Move "]'));
+      const taskIndex = isTask && this.parentElement ? Array.from(this.parentElement.children).indexOf(this) : 0;
+      const left = Math.max(0, columnIndex) * 400;
+      const top = isTask ? taskIndex * 100 : 0;
+      const width = 300;
+      const height = isTask ? 80 : 1000;
+      return {
+        x: left, y: top, left, top, width, height,
+        right: left + width, bottom: top + height,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<Board data={data} />);
+    const handle = screen.getByRole('button', { name: 'Move Design notification system' });
+    handle.focus();
+    await user.keyboard('[Space]');
+    await user.keyboard('[ArrowDown]');
+    expect(screen.getByText('Design notification system is over Backlog, position 3.')).toBeInTheDocument();
+    await user.keyboard('[Space]');
+    await waitFor(() => expect(boardStore.getState().columnTaskIds.backlog).toEqual(['7', '11', '4']));
+    expect(screen.getByText('Design notification system was moved to Backlog, position 3.')).toBeInTheDocument();
   });
 
   it('creates a task with accessible inline validation and success feedback', async () => {
@@ -84,6 +113,24 @@ describe('Board interactions', () => {
     await user.click(within(drawer).getByRole('button', { name: 'Add comment' }));
     expect(await within(drawer).findByText('Keyboard flow verified.')).toBeInTheDocument();
     expect(within(drawer).getAllByText('Emily Johnson').length).toBeGreaterThan(0);
+  });
+
+  it('resets an invalid edit draft and errors when editing is cancelled and reopened', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Board data={data} />);
+    await user.click(screen.getByRole('button', { name: 'Open details for Build Kanban board' }));
+    const drawer = screen.getByRole('dialog', { name: 'Build Kanban board' });
+    await user.click(within(drawer).getByRole('button', { name: 'Edit task' }));
+    const title = within(drawer).getByLabelText('Title');
+    await user.clear(title);
+    await user.type(within(drawer).getByLabelText('Description'), 'Unsaved draft');
+    await user.click(within(drawer).getByRole('button', { name: 'Save changes' }));
+    expect(within(drawer).getByText('Title is required.')).toBeInTheDocument();
+    await user.click(within(drawer).getByRole('button', { name: 'Cancel editing' }));
+    await user.click(within(drawer).getByRole('button', { name: 'Edit task' }));
+    expect(within(drawer).getByLabelText('Title')).toHaveValue('Build Kanban board');
+    expect(within(drawer).getByLabelText('Description')).toHaveValue('Create the sprint board with four columns and task management.');
+    expect(within(drawer).queryByText('Title is required.')).not.toBeInTheDocument();
   });
 
   it('focuses cancel in destructive confirmation and deletes the open task safely', async () => {

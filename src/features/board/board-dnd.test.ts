@@ -14,6 +14,7 @@ describe('board drag calculation', () => {
 
   it('calculates cross-column insertion and empty-column drops', () => {
     expect(calculateDragMove('a', 'e', columns)).toEqual({ taskId: 'a', toStatus: 'inProgress', toIndex: 1 });
+    expect(calculateDragMove('a', columnDropId('inProgress'), columns)).toEqual({ taskId: 'a', toStatus: 'inProgress', toIndex: 2 });
     expect(calculateDragMove('a', columnDropId('review'), columns)).toEqual({ taskId: 'a', toStatus: 'review', toIndex: 0 });
     expect(calculateDragMove('d', columnDropId('done'), columns)).toEqual({ taskId: 'd', toStatus: 'done', toIndex: 1 });
   });

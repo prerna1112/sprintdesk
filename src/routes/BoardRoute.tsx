@@ -7,6 +7,7 @@ import { Board, useBoardStore } from '../features/board';
 export default function BoardRoute() {
   const query = useQuery(mockDataQueryOptions());
   const hasHydrated = useBoardStore((state) => state.hasHydrated);
+  const persistenceError = useBoardStore((state) => state.persistenceError);
   const initializedFromSource = useBoardStore((state) => state.initializedFromSource);
   const initializeBoard = useBoardStore((state) => state.initializeBoard);
 
@@ -47,6 +48,13 @@ export default function BoardRoute() {
   }
 
   return (
-    <Board data={query.data} />
+    <>
+      {persistenceError ? (
+        <div className="mb-5 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm font-semibold" role="status">
+          {persistenceError}
+        </div>
+      ) : null}
+      <Board data={query.data} />
+    </>
   );
 }

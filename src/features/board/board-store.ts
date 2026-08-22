@@ -1,6 +1,6 @@
 import { useStore } from 'zustand';
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import type {
   BoardStateV1,
   ColumnTaskIds,
@@ -14,6 +14,7 @@ export const BOARD_STORAGE_KEY = 'sprintdesk.board.v1';
 export const BOARD_STORAGE_VERSION = 1;
 export const BOARD_ID_GENERATION_ATTEMPTS = 8;
 export const BOARD_STATUSES: TaskStatus[] = ['backlog', 'inProgress', 'review', 'done'];
+export const BOARD_PERSISTENCE_WARNING = 'Board changes are available in this tab but may not survive reload.';
 
 type ValidationField = 'title' | 'description' | 'priority' | 'assigneeId' | 'dueDate' | 'body' | 'taskId' | 'destination' | 'details';
 
@@ -71,6 +72,7 @@ export class BoardIdCollisionError extends Error {
 
 export interface BoardStore extends BoardStateV1 {
   hasHydrated: boolean;
+  persistenceError: string | null;
   currentSprintId: string | null;
   knownAssigneeIds: string[];
   initializeBoard: (input: InitializeBoardInput) => BoardActionResult<{ initialized: boolean }>;
@@ -102,13 +104,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isValidDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value) || !Number.isFinite(Date.parse(value))) return false;
-  const datePart = value.slice(0, 10);
-  return new Date(`${datePart}T00:00:00.000Z`).toISOString().slice(0, 10) === datePart;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value))) return false;
+  return new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
 }
 
 function isValidTimestamp(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value));
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+  if (!match) return false;
+  const [, yearValue, monthValue, dayValue, hourValue, minuteValue, secondValue, zone] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth) return false;
+  if (Number(hourValue) > 23 || Number(minuteValue) > 59 || Number(secondValue) > 59) return false;
+  if (zone && zone !== 'Z') {
+    const [zoneHour, zoneMinute] = zone.slice(1).split(':').map(Number);
+    if ((zoneHour ?? 0) > 23 || (zoneMinute ?? 0) > 59) return false;
+  }
+  return Number.isFinite(Date.parse(value));
 }
 
 function isTask(value: unknown): value is SprintTask {
@@ -117,13 +131,13 @@ function isTask(value: unknown): value is SprintTask {
   const completionIsValid = value.status === 'done'
     ? typeof value.completedAt === 'string' && isValidTimestamp(value.completedAt)
     : value.completedAt === null;
-  return typeof value.id === 'string'
-    && typeof value.title === 'string'
+  return typeof value.id === 'string' && value.id.trim().length > 0
+    && typeof value.title === 'string' && value.title.trim().length > 0
     && typeof value.description === 'string'
     && statusIsValid
     && ['low', 'medium', 'high'].includes(value.priority as string)
-    && typeof value.assigneeId === 'string'
-    && typeof value.sprintId === 'string'
+    && typeof value.assigneeId === 'string' && value.assigneeId.trim().length > 0
+    && typeof value.sprintId === 'string' && value.sprintId.trim().length > 0
     && typeof value.dueDate === 'string' && isValidDate(value.dueDate)
     && typeof value.createdAt === 'string' && isValidTimestamp(value.createdAt)
     && typeof value.updatedAt === 'string' && isValidTimestamp(value.updatedAt)
@@ -132,9 +146,9 @@ function isTask(value: unknown): value is SprintTask {
 
 function isComment(value: unknown): value is TaskComment {
   return isRecord(value)
-    && typeof value.id === 'string' && value.id.length > 0
-    && typeof value.taskId === 'string' && value.taskId.length > 0
-    && typeof value.authorId === 'string' && value.authorId.length > 0
+    && typeof value.id === 'string' && value.id.trim().length > 0
+    && typeof value.taskId === 'string' && value.taskId.trim().length > 0
+    && typeof value.authorId === 'string' && value.authorId.trim().length > 0
     && typeof value.body === 'string' && value.body.trim().length > 0
     && typeof value.createdAt === 'string'
     && isValidTimestamp(value.createdAt);
@@ -233,18 +247,95 @@ function nextUniqueId(
   throw new BoardIdCollisionError(entity);
 }
 
-export function createBoardStore(options: { skipHydration?: boolean; generateId?: () => string } = {}) {
-  const storage = typeof window === 'undefined'
-    ? undefined
-    : createJSONStorage(() => localStorage);
+function createResilientStateStorage(
+  getStorage: () => Storage | undefined,
+  reportError: () => void,
+  isReportingError: () => boolean,
+): StateStorage {
+  const memory = new Map<string, string>();
+  let durabilityFailed = false;
+  return {
+    getItem: (name) => {
+      if (durabilityFailed) return memory.get(name) ?? null;
+      try {
+        const durableStorage = getStorage();
+        if (!durableStorage) {
+          durabilityFailed = true;
+          reportError();
+          return memory.get(name) ?? null;
+        }
+        const value = durableStorage.getItem(name) ?? memory.get(name) ?? null;
+        if (value !== null) memory.set(name, value);
+        return value;
+      } catch {
+        durabilityFailed = true;
+        reportError();
+        return memory.get(name) ?? null;
+      }
+    },
+    setItem: (name, value) => {
+      if (isReportingError()) return;
+      memory.set(name, value);
+      try {
+        const durableStorage = getStorage();
+        if (!durableStorage) {
+          durabilityFailed = true;
+          reportError();
+          return;
+        }
+        durableStorage.setItem(name, value);
+      } catch {
+        durabilityFailed = true;
+        reportError();
+      }
+    },
+    removeItem: (name) => {
+      memory.delete(name);
+      try {
+        const durableStorage = getStorage();
+        if (!durableStorage) {
+          durabilityFailed = true;
+          reportError();
+          return;
+        }
+        durableStorage.removeItem(name);
+      } catch {
+        durabilityFailed = true;
+        reportError();
+      }
+    },
+  };
+}
+
+export function createBoardStore(options: {
+  skipHydration?: boolean;
+  generateId?: () => string;
+  getStorage?: () => Storage | undefined;
+} = {}) {
   const generateId = options.generateId ?? (() => globalThis.crypto.randomUUID());
   let storeRef: StoreApi<BoardStore> | null = null;
+  let pendingPersistenceError = false;
+  let reportingPersistenceError = false;
+  const reportPersistenceError = () => {
+    pendingPersistenceError = true;
+    if (!storeRef || reportingPersistenceError || storeRef.getState().persistenceError) return;
+    reportingPersistenceError = true;
+    storeRef.setState({ persistenceError: BOARD_PERSISTENCE_WARNING });
+    reportingPersistenceError = false;
+  };
+  const getStorage = options.getStorage ?? (() => (typeof window === 'undefined' ? undefined : window.localStorage));
+  const storage = createJSONStorage(() => createResilientStateStorage(
+    getStorage,
+    reportPersistenceError,
+    () => reportingPersistenceError,
+  ));
 
   const store = createStore<BoardStore>()(
     persist(
       (set, get) => ({
         ...emptyDomainState(),
         hasHydrated: false,
+        persistenceError: null,
         currentSprintId: null,
         knownAssigneeIds: [],
         initializeBoard: ({ tasks, comments, currentSprintId, assigneeIds }) => {
@@ -441,6 +532,7 @@ export function createBoardStore(options: { skipHydration?: boolean; generateId?
     ),
   );
   storeRef = store;
+  if (pendingPersistenceError) queueMicrotask(reportPersistenceError);
   return store;
 }
 
@@ -462,6 +554,7 @@ export function resetBoardStore(): void {
   boardStore.setState({
     ...emptyDomainState(),
     hasHydrated: true,
+    persistenceError: null,
     currentSprintId: null,
     knownAssigneeIds: [],
   });

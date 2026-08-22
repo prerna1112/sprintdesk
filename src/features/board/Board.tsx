@@ -9,6 +9,7 @@ import {
   useSensors,
   type Announcements,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
 import {
@@ -24,7 +25,7 @@ import { getAuthUserDisplayName, useAuthStore } from '../auth';
 import { Button, Drawer, Input, Modal, Select, useToast } from '../../components/ui';
 import { cn } from '../../components/ui/cn';
 import { calculateDragMove, columnDropId } from './board-dnd';
-import { BOARD_STATUSES, useBoardStore, type AddTaskInput, type BoardActionError } from './board-store';
+import { BOARD_STATUSES, useBoardStore, type AddTaskInput, type BoardActionError, type MoveTaskInput } from './board-store';
 
 const columnLabels: Record<TaskStatus, string> = {
   backlog: 'Backlog',
@@ -40,6 +41,16 @@ const priorityClasses: Record<TaskPriority, string> = {
 };
 
 const EMPTY_COMMENTS: never[] = [];
+
+function taskDraft(task: SprintTask): AddTaskInput {
+  return {
+    title: task.title,
+    description: task.description,
+    priority: task.priority,
+    assigneeId: task.assigneeId,
+    dueDate: task.dueDate.slice(0, 10),
+  };
+}
 
 type FieldErrors = Partial<Record<'title' | 'priority' | 'assigneeId' | 'dueDate' | 'body', string>>;
 
@@ -251,13 +262,26 @@ function TaskDetailsDrawer({ task, assignees, usersById, open, onClose, onReques
   useEffect(() => {
     if (!task) return;
     setEditing(false);
-    setEditValue({ title: task.title, description: task.description, priority: task.priority, assigneeId: task.assigneeId, dueDate: task.dueDate.slice(0, 10) });
+    setEditValue(taskDraft(task));
     setErrors({}); setComment(''); setCommentError('');
   }, [task]);
 
   if (!task) return null;
+  const currentTask = task;
   const taskId = task.id;
   const assignee = usersById[task.assigneeId];
+
+  function beginEditing() {
+    setEditValue(taskDraft(currentTask));
+    setErrors({});
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setEditValue(taskDraft(currentTask));
+    setErrors({});
+    setEditing(false);
+  }
 
   function save(event: FormEvent) {
     event.preventDefault();
@@ -282,7 +306,7 @@ function TaskDetailsDrawer({ task, assignees, usersById, open, onClose, onReques
       {editing ? (
         <form className="grid gap-5" noValidate onSubmit={save}>
           <TaskFields assignees={assignees} errors={errors} onChange={setEditValue} value={editValue} />
-          <div className="flex justify-end gap-2"><Button onClick={() => setEditing(false)} variant="secondary">Cancel editing</Button><Button type="submit">Save changes</Button></div>
+          <div className="flex justify-end gap-2"><Button onClick={cancelEditing} variant="secondary">Cancel editing</Button><Button type="submit">Save changes</Button></div>
         </form>
       ) : (
         <div className="grid gap-5">
@@ -295,7 +319,7 @@ function TaskDetailsDrawer({ task, assignees, usersById, open, onClose, onReques
             <div><dt className="text-xs font-bold text-muted-foreground">Assignee</dt><dd className="mt-1 flex items-center gap-2 font-semibold"><AssigneeAvatar assignee={assignee} />{assignee?.name ?? 'Unknown assignee'}</dd></div>
             <div><dt className="text-xs font-bold text-muted-foreground">Due date</dt><dd className={cn('mt-1 font-semibold', dueLabel(task.dueDate, task.status).startsWith('Overdue') && 'text-danger')}>{dueLabel(task.dueDate, task.status)}</dd></div>
           </dl>
-          <div className="flex gap-2"><Button onClick={() => setEditing(true)} variant="secondary">Edit task</Button><Button onClick={onRequestDelete} variant="danger">Delete task</Button></div>
+          <div className="flex gap-2"><Button onClick={beginEditing} variant="secondary">Edit task</Button><Button onClick={onRequestDelete} variant="danger">Delete task</Button></div>
         </div>
       )}
 
@@ -348,6 +372,8 @@ export function Board({ data }: { data: MockData }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const lastOverId = useRef<string | null>(null);
+  const completedMove = useRef<MoveTaskInput | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -363,15 +389,33 @@ export function Board({ data }: { data: MockData }) {
       return move ? `${tasksById[String(active.id)]?.title ?? 'Task'} is over ${columnLabels[move.toStatus]}, position ${move.toIndex + 1}.` : undefined;
     },
     onDragEnd: ({ active, over }) => {
-      const move = calculateDragMove(String(active.id), over ? String(over.id) : null, columnTaskIds);
+      const committedMove = completedMove.current;
+      if (committedMove?.taskId === String(active.id)) {
+        return `${tasksById[String(active.id)]?.title ?? 'Task'} was moved to ${columnLabels[committedMove.toStatus]}, position ${committedMove.toIndex + 1}.`;
+      }
+      const overId = over && String(over.id) !== String(active.id)
+        ? String(over.id)
+        : null;
+      const move = calculateDragMove(String(active.id), overId, columnTaskIds);
       return move ? `${tasksById[String(active.id)]?.title ?? 'Task'} was moved to ${columnLabels[move.toStatus]}, position ${move.toIndex + 1}.` : 'Task position was unchanged.';
     },
     onDragCancel: ({ active }) => `Moving ${tasksById[String(active.id)]?.title ?? 'task'} was cancelled.`,
   };
 
-  function handleDragStart(event: DragStartEvent) { setActiveId(String(event.active.id)); }
+  function handleDragStart(event: DragStartEvent) {
+    lastOverId.current = null;
+    completedMove.current = null;
+    setActiveId(String(event.active.id));
+  }
+  function handleDragOver(event: DragOverEvent) {
+    if (event.over && String(event.over.id) !== String(event.active.id)) lastOverId.current = String(event.over.id);
+  }
   function handleDragEnd(event: DragEndEvent) {
-    const move = calculateDragMove(String(event.active.id), event.over ? String(event.over.id) : null, columnTaskIds);
+    const overId = event.over && String(event.over.id) !== String(event.active.id)
+      ? String(event.over.id)
+      : (event.activatorEvent instanceof KeyboardEvent ? lastOverId.current : null);
+    const move = calculateDragMove(String(event.active.id), overId, columnTaskIds);
+    completedMove.current = move;
     if (move) moveTask(move);
     setActiveId(null);
   }
@@ -383,7 +427,7 @@ export function Board({ data }: { data: MockData }) {
         <Button onClick={() => setCreateOpen(true)}>Create task</Button>
       </div>
       {Object.keys(tasksById).length === 0 ? <p className="mt-8 rounded-2xl border bg-surface p-8 text-center text-sm text-muted-foreground">No tasks yet. Create one to start this sprint.</p> : null}
-      <DndContext accessibility={{ announcements }} collisionDetection={closestCenter} onDragCancel={() => setActiveId(null)} onDragEnd={handleDragEnd} onDragStart={handleDragStart} sensors={sensors}>
+      <DndContext accessibility={{ announcements }} collisionDetection={closestCenter} onDragCancel={() => { lastOverId.current = null; completedMove.current = null; setActiveId(null); }} onDragEnd={handleDragEnd} onDragOver={handleDragOver} onDragStart={handleDragStart} sensors={sensors}>
         <div aria-label="Sprint task board" className="mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4 xl:grid xl:grid-cols-4 xl:overflow-visible" data-keyboard-sensor="sortableKeyboardCoordinates">
           {BOARD_STATUSES.map((status) => <BoardColumn assigneesById={assigneesById} key={status} onOpen={setSelectedId} status={status} taskIds={columnTaskIds[status]} tasksById={tasksById} />)}
         </div>

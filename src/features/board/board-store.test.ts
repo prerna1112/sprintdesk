@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BoardStateV1, SprintTask, TaskComment } from '../../domain/types';
 import {
   BOARD_ID_GENERATION_ATTEMPTS,
+  BOARD_PERSISTENCE_WARNING,
   BOARD_STORAGE_KEY,
   BoardIdCollisionError,
   createBoardStore,
@@ -86,6 +87,70 @@ describe('board store', () => {
     store = await ready(createBoardStore());
     expect(store.getState().initializedFromSource).toBe(false);
     expect(getBoardInvariantErrors(store.getState())).toEqual([]);
+  });
+
+  it('completes hydration and remains usable when the storage getter is denied', async () => {
+    const getStorage = vi.fn((): Storage => {
+      throw new DOMException('Denied', 'SecurityError');
+    });
+    const store = await ready(createBoardStore({ getStorage, generateId: () => 'new-task' }));
+    await Promise.resolve();
+    expect(store.getState().hasHydrated).toBe(true);
+    expect(store.getState().persistenceError).toBe(BOARD_PERSISTENCE_WARNING);
+    initialize(store);
+    expect(store.getState().addTask({
+      title: 'Tab-only task', priority: 'low', assigneeId: 'u1', dueDate: '2026-10-01',
+    })).toEqual({ ok: true, taskId: 'new-task' });
+    expect(store.getState().tasksById['new-task']?.title).toBe('Tab-only task');
+  });
+
+  it('completes hydration when storage reads throw', async () => {
+    const deniedStorage = {
+      getItem: vi.fn(() => { throw new DOMException('Denied', 'SecurityError'); }),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    } as unknown as Storage;
+    const store = await ready(createBoardStore({ getStorage: () => deniedStorage }));
+    await Promise.resolve();
+    expect(store.getState().hasHydrated).toBe(true);
+    expect(store.getState().persistenceError).toBe(BOARD_PERSISTENCE_WARNING);
+  });
+
+  it('keeps mutations usable and reports quota failures without a persistence loop', async () => {
+    const attemptedWrites: string[] = [];
+    const quotaStorage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn((_name: string, value: string) => {
+        attemptedWrites.push(value);
+        throw new DOMException('Full', 'QuotaExceededError');
+      }),
+      removeItem: vi.fn(),
+    } as unknown as Storage;
+    const store = await ready(createBoardStore({ getStorage: () => quotaStorage, generateId: () => 'new-task' }));
+    initialize(store);
+    expect(store.getState().addTask({
+      title: 'Still works', priority: 'high', assigneeId: 'u1', dueDate: '2026-10-01',
+    })).toEqual({ ok: true, taskId: 'new-task' });
+    expect(store.getState().tasksById['new-task']).toBeDefined();
+    expect(store.getState().persistenceError).toBe(BOARD_PERSISTENCE_WARNING);
+    expect(quotaStorage.setItem).toHaveBeenCalledTimes(3);
+    const attemptedState = JSON.parse(attemptedWrites.at(-1) ?? '{}') as { state: Record<string, unknown> };
+    expect(Object.keys(attemptedState.state).sort()).toEqual([
+      'columnTaskIds', 'commentsByTaskId', 'initializedFromSource', 'tasksById', 'version',
+    ]);
+    await store.persist.rehydrate();
+    expect(store.getState().tasksById['new-task']?.title).toBe('Still works');
+  });
+
+  it('catches storage removal failures and exposes transient durability state', async () => {
+    const deniedStorage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(() => { throw new DOMException('Denied', 'SecurityError'); }),
+    } as unknown as Storage;
+    const store = await ready(createBoardStore({ getStorage: () => deniedStorage }));
+    expect(() => store.persist.clearStorage()).not.toThrow();
+    expect(store.getState().persistenceError).toBe(BOARD_PERSISTENCE_WARNING);
   });
 
   it('adds valid tasks to backlog using the configured current sprint', async () => {
@@ -270,6 +335,33 @@ describe('board store', () => {
     ['an extra top-level persisted field', (domain: BoardStateV1) => {
       (domain as unknown as Record<string, unknown>).transientDrawerState = true;
     }],
+    ['a whitespace-only task ID', (domain: BoardStateV1) => {
+      domain.tasksById.a!.id = '   ';
+    }],
+    ['a whitespace-only task title', (domain: BoardStateV1) => {
+      domain.tasksById.a!.title = '   ';
+    }],
+    ['a whitespace-only task assignee', (domain: BoardStateV1) => {
+      domain.tasksById.a!.assigneeId = '   ';
+    }],
+    ['a whitespace-only sprint ID', (domain: BoardStateV1) => {
+      domain.tasksById.a!.sprintId = '   ';
+    }],
+    ['an impossible task timestamp', (domain: BoardStateV1) => {
+      domain.tasksById.a!.createdAt = '2026-02-30T10:00:00Z';
+    }],
+    ['an impossible comment timestamp', (domain: BoardStateV1) => {
+      domain.commentsByTaskId.a![0]!.createdAt = '2026-02-30T10:00:00Z';
+    }],
+    ['an impossible due date', (domain: BoardStateV1) => {
+      domain.tasksById.a!.dueDate = '2026-02-30';
+    }],
+    ['a timestamp instead of a date-only due date', (domain: BoardStateV1) => {
+      domain.tasksById.a!.dueDate = '2026-09-01T00:00:00Z';
+    }],
+    ['a whitespace-only comment author', (domain: BoardStateV1) => {
+      domain.commentsByTaskId.a![0]!.authorId = '   ';
+    }],
   ])('fails safely when persisted data contains %s', async (_, corrupt) => {
     const domain = validPersistedDomain();
     corrupt(domain);
@@ -303,6 +395,11 @@ describe('board store', () => {
     const stored = localStorage.getItem(BOARD_STORAGE_KEY) ?? '';
     expect(stored).not.toContain('hasHydrated');
     expect(stored).not.toContain('currentSprintId');
+    expect(stored).not.toContain('persistenceError');
+    const persisted = JSON.parse(stored) as { state: Record<string, unknown> };
+    expect(Object.keys(persisted.state).sort()).toEqual([
+      'columnTaskIds', 'commentsByTaskId', 'initializedFromSource', 'tasksById', 'version',
+    ]);
   });
 
   it('provides analytics-compatible counts', async () => {
