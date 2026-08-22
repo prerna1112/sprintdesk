@@ -22,6 +22,7 @@ describe('AppShell', () => {
     expect(skipLink).toHaveAttribute('href', '#main-content');
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content');
     expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: /Notifications, \d+ unread/ })).toBeVisible();
   });
 
   it('opens an accessible mobile menu and closes after navigation', async () => {

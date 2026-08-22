@@ -6,6 +6,7 @@ import { Icon, type IconName } from '../components/ui/Icon';
 import { ThemeControl } from '../features/theme';
 import { cn } from '../components/ui/cn';
 import { getAuthUserDisplayName, useAuthStore, useLogout } from '../features/auth';
+import { NotificationCenter } from '../features/notifications';
 
 const navigation: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -101,9 +102,7 @@ export function AppShell() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button aria-label="Notifications" size="icon" variant="ghost">
-              <Icon name="bell" />
-            </Button>
+            <NotificationCenter />
             <ThemeControl />
             <div className="ml-1 hidden items-center gap-2 border-l pl-3 sm:flex">
               {user?.image && !avatarFailed ? (
