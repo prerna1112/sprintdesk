@@ -30,6 +30,11 @@ export function NotificationCenter() {
   const [documentHidden, setDocumentHidden] = useState(() =>
     typeof document !== 'undefined' && document.hidden);
   const wasHidden = useRef(documentHidden);
+  const previousNotificationCount = useRef(0);
+  const notificationElements = useRef(new Map<string, HTMLElement>());
+  const unreadStatusRef = useRef<HTMLParagraphElement>(null);
+  const pageStatusRef = useRef<HTMLParagraphElement>(null);
+  const pendingPageFocus = useRef(false);
   const { toast } = useToast();
   const authenticated = useAuthStore((state) => Boolean(state.accessToken && state.user));
   const hasHydrated = useNotificationStore((state) => state.hasHydrated);
@@ -64,7 +69,7 @@ export function NotificationCenter() {
   const pollEnabled = authenticated && hasHydrated && initializedFromSource;
   const pollQuery = useQuery({
     ...notificationsQueryOptions(),
-    enabled: pollEnabled,
+    enabled: pollEnabled && !documentHidden,
     refetchInterval: pollEnabled && !documentHidden
       ? NOTIFICATIONS_POLL_INTERVAL_MS
       : false,
@@ -97,8 +102,39 @@ export function NotificationCenter() {
   }, [mergeNotifications, open, pollQuery.data, pollQuery.dataUpdatedAt, toast]);
 
   useEffect(() => {
+    if (!open && notificationCount > previousNotificationCount.current) setPage(1);
+    previousNotificationCount.current = notificationCount;
+  }, [notificationCount, open]);
+
+  useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
+
+  useEffect(() => {
+    if (!pendingPageFocus.current) return;
+    pendingPageFocus.current = false;
+    queueMicrotask(() => pageStatusRef.current?.focus());
+  }, [page]);
+
+  function openPanel() {
+    setPage(1);
+    setOpen(true);
+  }
+
+  function handleMarkRead(id: string) {
+    markRead(id);
+    queueMicrotask(() => notificationElements.current.get(id)?.focus());
+  }
+
+  function handleMarkAllRead() {
+    markAllRead();
+    queueMicrotask(() => unreadStatusRef.current?.focus());
+  }
+
+  function changePage(nextPage: number) {
+    pendingPageFocus.current = true;
+    setPage(nextPage);
+  }
 
   const loading = !hasHydrated || (!initializedFromSource && sourceQuery.isPending)
     || (initializedFromSource && notificationCount === 0 && pollQuery.isPending);
@@ -112,7 +148,7 @@ export function NotificationCenter() {
           aria-label={`Notifications, ${unreadCount} unread`}
           aria-expanded={open}
           aria-haspopup="dialog"
-          onClick={() => setOpen(true)}
+          onClick={openPanel}
           size="icon"
           variant="ghost"
         >
@@ -136,12 +172,12 @@ export function NotificationCenter() {
       >
         <div className="grid gap-4">
           <div className="flex items-center justify-between gap-3 border-b pb-3">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground" ref={unreadStatusRef} role="status" tabIndex={-1}>
               {unreadCount === 0 ? 'All caught up' : `${unreadCount} unread`}
             </p>
             <Button
               disabled={unreadCount === 0}
-              onClick={() => markAllRead()}
+              onClick={handleMarkAllRead}
               size="sm"
               variant="secondary"
             >
@@ -184,11 +220,18 @@ export function NotificationCenter() {
 
           {notifications.length > 0 ? (
             <ol aria-label="Latest notifications" className="grid divide-y">
-              {notifications.map((notification) => {
+              {notifications.map((notification, index) => {
                 const unread = notification.readAt === null;
                 return (
                   <li className="py-4 first:pt-0" key={notification.id}>
-                    <article aria-label={`${notification.title}, ${unread ? 'unread' : 'read'}`}>
+                    <article
+                      aria-label={`${notification.title}, ${unread ? 'unread' : 'read'}`}
+                      ref={(element) => {
+                        if (element) notificationElements.current.set(notification.id, element);
+                        else notificationElements.current.delete(notification.id);
+                      }}
+                      tabIndex={-1}
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-bold">{notification.title}</p>
@@ -203,7 +246,12 @@ export function NotificationCenter() {
                           {formatTimestamp(notification.createdAt)}
                         </time>
                         {unread ? (
-                          <Button onClick={() => markRead(notification.id)} size="sm" variant="ghost">
+                          <Button
+                            aria-label={`Mark ${notification.title} as read, notification ${(page - 1) * NOTIFICATION_PAGE_SIZE + index + 1}`}
+                            onClick={() => handleMarkRead(notification.id)}
+                            size="sm"
+                            variant="ghost"
+                          >
                             Mark read
                           </Button>
                         ) : null}
@@ -219,16 +267,16 @@ export function NotificationCenter() {
             <nav aria-label="Notification pages" className="flex items-center justify-between gap-3 border-t pt-3">
               <Button
                 disabled={page === 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                onClick={() => changePage(Math.max(1, page - 1))}
                 size="sm"
                 variant="secondary"
               >
                 Previous
               </Button>
-              <p className="text-sm" role="status">Page {page} of {totalPages}</p>
+              <p className="text-sm" ref={pageStatusRef} role="status" tabIndex={-1}>Page {page} of {totalPages}</p>
               <Button
                 disabled={page === totalPages}
-                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                onClick={() => changePage(Math.min(totalPages, page + 1))}
                 size="sm"
                 variant="secondary"
               >

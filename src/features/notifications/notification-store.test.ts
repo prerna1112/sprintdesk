@@ -3,6 +3,7 @@ import type { AppNotification } from '../../domain/types';
 import {
   NOTIFICATION_PAGE_SIZE,
   NOTIFICATION_PERSISTENCE_WARNING,
+  NOTIFICATION_SEEN_SOURCE_LIMIT,
   NOTIFICATION_STORAGE_KEY,
   NOTIFICATION_STORE_LIMIT,
   createNotificationStore,
@@ -88,8 +89,62 @@ describe('notification store', () => {
     expect(ids).toEqual([...ids].sort((a, b) => {
       const left = many.find((candidate) => candidate.id === a)!;
       const right = many.find((candidate) => candidate.id === b)!;
-      return right.createdAt.localeCompare(left.createdAt) || b.localeCompare(a);
+      return Date.parse(right.createdAt) - Date.parse(left.createdAt) || b.localeCompare(a);
     }));
+  });
+
+  it('sorts by actual instants across offsets and uses ID only for equivalent instants', async () => {
+    const store = await ready(createNotificationStore());
+    store.getState().mergeNotifications([
+      item('jsonPlaceholder:a', '2026-08-22T12:00:00+05:30'),
+      item('jsonPlaceholder:b', '2026-08-22T07:00:01Z'),
+      item('jsonPlaceholder:c', '2026-08-22T06:30:00Z'),
+    ]);
+    expect(store.getState().notifications.map(({ id }) => id)).toEqual([
+      'jsonPlaceholder:b',
+      'jsonPlaceholder:c',
+      'jsonPlaceholder:a',
+    ]);
+  });
+
+  it('keeps the true newest records at the cap when timestamps use mixed offsets', async () => {
+    const store = await ready(createNotificationStore());
+    const middle = Array.from({ length: NOTIFICATION_STORE_LIMIT - 1 }, (_, index) => item(
+      `jsonPlaceholder:middle-${index}`,
+      '2026-08-22T10:00:00Z',
+    ));
+    store.getState().mergeNotifications([
+      ...middle,
+      item('jsonPlaceholder:lexically-late-but-oldest', '2026-08-22T23:00:00+14:00'),
+      item('jsonPlaceholder:true-newest', '2026-08-22T12:00:00Z'),
+    ]);
+    expect(store.getState().notifications).toHaveLength(NOTIFICATION_STORE_LIMIT);
+    expect(store.getState().notifications[0]?.id).toBe('jsonPlaceholder:true-newest');
+    expect(store.getState().notifications.some(({ id }) => id === 'jsonPlaceholder:lexically-late-but-oldest'))
+      .toBe(false);
+  });
+
+  it('bounds seen metadata while retaining dedupe for every stored item', async () => {
+    const store = await ready(createNotificationStore());
+    for (let batch = 0; batch < 60; batch += 1) {
+      store.getState().mergeNotifications(Array.from({ length: 5 }, (_, index) => {
+        const numericId = batch * 5 + index;
+        return item(
+          `jsonPlaceholder:${numericId}`,
+          new Date(Date.UTC(2026, 0, 1, 0, numericId)).toISOString(),
+        );
+      }));
+    }
+    expect(store.getState().notifications).toHaveLength(NOTIFICATION_STORE_LIMIT);
+    expect(store.getState().seenSourceIds).toHaveLength(NOTIFICATION_SEEN_SOURCE_LIMIT);
+    expect(store.getState().notifications.every(({ sourceId }) =>
+      store.getState().seenSourceIds.includes(sourceId))).toBe(true);
+
+    const retained = store.getState().notifications[50]!;
+    expect(store.getState().mergeNotifications([{ ...retained, createdAt: '2027-01-01T00:00:00.000Z' }]))
+      .toEqual({ newCount: 0 });
+    expect(store.getState().notifications.find(({ id }) => id === retained.id)?.createdAt)
+      .toBe(retained.createdAt);
   });
 
   it('persists only validated domain state and rejects corrupt data', async () => {
@@ -112,6 +167,23 @@ describe('notification store', () => {
     expect(store.getState().hasHydrated).toBe(true);
 
     localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify({ state: { version: 0 }, version: 0 }));
+    store = await ready(createNotificationStore());
+    expect(store.getState().notifications).toEqual([]);
+
+    localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify({
+      state: { version: 1, notifications: [], seenSourceIds: ['unscoped'], initializedFromSource: true },
+      version: 1,
+    }));
+    store = await ready(createNotificationStore());
+    expect(store.getState().initializedFromSource).toBe(false);
+
+    localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify({
+      state: {
+        ...persisted.state,
+        seenSourceIds: Array.from({ length: NOTIFICATION_SEEN_SOURCE_LIMIT + 1 }, (_, index) => `mock:${index}`),
+      },
+      version: 1,
+    }));
     store = await ready(createNotificationStore());
     expect(store.getState().notifications).toEqual([]);
   });

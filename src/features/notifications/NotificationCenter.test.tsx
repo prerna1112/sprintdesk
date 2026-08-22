@@ -64,11 +64,21 @@ describe('NotificationCenter', () => {
     const drawer = screen.getByRole('dialog', { name: 'Notifications' });
     expect(within(drawer).getAllByRole('listitem')).toHaveLength(9);
     expect(within(drawer).getByText('8 unread')).toBeVisible();
+    const markReadButtons = within(drawer).getAllByRole('button', { name: /^Mark .+ as read, notification \d+$/ });
+    expect(new Set(markReadButtons.map((button) => button.getAttribute('aria-label'))).size)
+      .toBe(markReadButtons.length);
 
-    await user.click(within(drawer).getAllByRole('button', { name: 'Mark read' })[0]!);
+    const firstUnreadArticle = within(drawer).getByRole('article', { name: 'Service update 5, unread' });
+    await user.click(within(firstUnreadArticle).getByRole('button', {
+      name: 'Mark Service update 5 as read, notification 1',
+    }));
+    expect(within(drawer).getByRole('article', { name: 'Service update 5, read' })).toHaveFocus();
     expect(within(drawer).getByText('7 unread')).toBeVisible();
     await user.click(within(drawer).getByRole('button', { name: 'Mark all read' }));
-    expect(within(drawer).getByText('All caught up')).toBeVisible();
+    const allCaughtUp = within(drawer).getByText('All caught up');
+    expect(allCaughtUp).toBeVisible();
+    expect(allCaughtUp).toHaveFocus();
+    expect(drawer).toContainElement(document.activeElement as HTMLElement);
   });
 
   it('paginates a fixture larger than twenty with latest items on page one', async () => {
@@ -95,7 +105,33 @@ describe('NotificationCenter', () => {
     await user.click(within(drawer).getByRole('button', { name: 'Next' }));
     expect(within(drawer).getAllByRole('listitem')).toHaveLength(5);
     expect(within(drawer).getByText('Fixture 1')).toBeVisible();
-    expect(within(drawer).getByText('Page 2 of 2')).toBeVisible();
+    const pageTwoStatus = within(drawer).getByText('Page 2 of 2');
+    expect(pageTwoStatus).toBeVisible();
+    expect(pageTwoStatus).toHaveFocus();
+    expect(within(drawer).getByRole('button', { name: 'Next' })).toBeDisabled();
+
+    await user.click(within(drawer).getByRole('button', { name: 'Previous' }));
+    expect(within(drawer).getByText('Page 1 of 2')).toHaveFocus();
+    expect(within(drawer).getByRole('button', { name: 'Previous' })).toBeDisabled();
+
+    await user.click(within(drawer).getByRole('button', { name: 'Next' }));
+    await user.click(within(drawer).getByRole('button', { name: 'Close drawer' }));
+    act(() => {
+      notificationStore.getState().mergeNotifications([{
+        id: 'jsonPlaceholder:latest',
+        source: 'jsonPlaceholder',
+        sourceId: 'jsonPlaceholder:latest',
+        title: 'Newest while closed',
+        body: 'Latest details',
+        createdAt: '2026-08-22T12:00:00.000Z',
+        readAt: null,
+      }]);
+    });
+    await user.click(screen.getByRole('button', { name: 'Notifications, 26 unread' }));
+    const reopenedDrawer = screen.getByRole('dialog', { name: 'Notifications' });
+    expect(within(reopenedDrawer).getByText('Page 1 of 2')).toBeVisible();
+    expect(within(reopenedDrawer).getByText('Newest while closed')).toBeVisible();
+    expect(within(reopenedDrawer).queryByText('Fixture 1')).not.toBeInTheDocument();
   });
 
   it('shows non-blocking poll errors with retry while retaining existing notifications', async () => {
@@ -146,7 +182,7 @@ describe('NotificationCenter', () => {
 
   it('pauses while hidden, promptly refetches when visible, and cleans up StrictMode listeners', async () => {
     vi.useFakeTimers();
-    let hidden = false;
+    let hidden = true;
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
     const addListener = vi.spyOn(document, 'addEventListener');
     const removeListener = vi.spyOn(document, 'removeEventListener');
@@ -156,6 +192,10 @@ describe('NotificationCenter', () => {
     const pollCalls = () => fetchMock.mock.calls.filter(([input]) => String(input) === NOTIFICATIONS_ENDPOINT).length;
 
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(pollCalls()).toBe(0);
+
+    hidden = false;
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await Promise.resolve(); });
     expect(pollCalls()).toBe(1);
     await act(async () => { await vi.advanceTimersByTimeAsync(NOTIFICATIONS_POLL_INTERVAL_MS); });
     expect(pollCalls()).toBe(2);

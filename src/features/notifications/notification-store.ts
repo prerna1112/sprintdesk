@@ -7,6 +7,8 @@ export const NOTIFICATION_STORAGE_KEY = 'sprintdesk.notifications.v1';
 export const NOTIFICATION_STORAGE_VERSION = 1;
 /** Durable notification history is intentionally bounded; the panel pages it 20 at a time. */
 export const NOTIFICATION_STORE_LIMIT = 100;
+/** Retained notification IDs plus a bounded recent tombstone window used for poll dedupe. */
+export const NOTIFICATION_SEEN_SOURCE_LIMIT = 200;
 export const NOTIFICATION_PAGE_SIZE = 20;
 export const NOTIFICATION_PERSISTENCE_WARNING = 'Notifications are available in this tab but may not survive reload.';
 
@@ -54,13 +56,18 @@ function isTimestamp(value: unknown): value is string {
   return Number.isFinite(Date.parse(value));
 }
 
+function isSourceId(value: unknown): value is string {
+  return typeof value === 'string'
+    && (/^mock:.+$/.test(value) || /^jsonPlaceholder:.+$/.test(value));
+}
+
 function isNotification(value: unknown): value is AppNotification {
   if (!isRecord(value)) return false;
   const source = value.source;
   const expectedPrefix = source === 'mock' ? 'mock:' : source === 'jsonPlaceholder' ? 'jsonPlaceholder:' : null;
   return expectedPrefix !== null
-    && typeof value.id === 'string' && value.id.startsWith(expectedPrefix)
-    && typeof value.sourceId === 'string' && value.sourceId.startsWith(expectedPrefix)
+    && isSourceId(value.id) && value.id.startsWith(expectedPrefix)
+    && isSourceId(value.sourceId) && value.sourceId.startsWith(expectedPrefix)
     && value.id === value.sourceId
     && typeof value.title === 'string' && value.title.trim().length > 0
     && typeof value.body === 'string' && value.body.trim().length > 0
@@ -69,8 +76,23 @@ function isNotification(value: unknown): value is AppNotification {
 }
 
 export function sortNotifications(notifications: AppNotification[]): AppNotification[] {
-  return [...notifications].sort((left, right) =>
-    right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id));
+  return [...notifications].sort((left, right) => {
+    const timestampDifference = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+    return timestampDifference || right.id.localeCompare(left.id);
+  });
+}
+
+function boundSeenSourceIds(
+  recentSourceIds: string[],
+  retainedNotifications: AppNotification[],
+): string[] {
+  const retainedIds = retainedNotifications.map(({ sourceId }) => sourceId);
+  const retained = new Set(retainedIds);
+  const uniqueRecent = [...new Set([...recentSourceIds, ...retainedIds])];
+  const tombstones = uniqueRecent
+    .filter((sourceId) => !retained.has(sourceId))
+    .slice(0, NOTIFICATION_SEEN_SOURCE_LIMIT - retainedIds.length);
+  return [...retainedIds, ...tombstones];
 }
 
 function parsePersistedDomain(value: unknown): NotificationDomainStateV1 | null {
@@ -81,7 +103,8 @@ function parsePersistedDomain(value: unknown): NotificationDomainStateV1 | null 
   if (!Array.isArray(value.notifications) || value.notifications.length > NOTIFICATION_STORE_LIMIT
     || !value.notifications.every(isNotification)) return null;
   if (!Array.isArray(value.seenSourceIds)
-    || !value.seenSourceIds.every((id) => typeof id === 'string' && id.length > 0)) return null;
+    || value.seenSourceIds.length > NOTIFICATION_SEEN_SOURCE_LIMIT
+    || !value.seenSourceIds.every(isSourceId)) return null;
   const notifications = value.notifications as AppNotification[];
   const seenSourceIds = value.seenSourceIds as string[];
   if (new Set(notifications.map(({ id }) => id)).size !== notifications.length
@@ -188,10 +211,14 @@ export function createNotificationStore(options: {
           valid.forEach((notification) => {
             if (!bySourceId.has(notification.sourceId)) bySourceId.set(notification.sourceId, { ...notification });
           });
+          const notifications = sortNotifications([...bySourceId.values()]).slice(0, NOTIFICATION_STORE_LIMIT);
           initialized = true;
           return {
-            notifications: sortNotifications([...bySourceId.values()]).slice(0, NOTIFICATION_STORE_LIMIT),
-            seenSourceIds: [...new Set([...state.seenSourceIds, ...valid.map(({ sourceId }) => sourceId)])],
+            notifications,
+            seenSourceIds: boundSeenSourceIds(
+              [...valid.map(({ sourceId }) => sourceId), ...state.seenSourceIds],
+              notifications,
+            ),
             initializedFromSource: true,
           };
         });
@@ -201,15 +228,21 @@ export function createNotificationStore(options: {
         let newCount = 0;
         set((state) => {
           const seen = new Set(state.seenSourceIds);
-          const additions = normalizeIncoming(incoming).filter(({ sourceId }) => !seen.has(sourceId));
-          if (additions.length === 0) return state;
-          newCount = additions.length;
-          return {
-            notifications: sortNotifications([
+          const valid = normalizeIncoming(incoming);
+          const additions = valid.filter(({ sourceId }) => !seen.has(sourceId));
+          const notifications = additions.length === 0
+            ? state.notifications
+            : sortNotifications([
               ...state.notifications,
               ...additions.map((notification) => ({ ...notification })),
-            ]).slice(0, NOTIFICATION_STORE_LIMIT),
-            seenSourceIds: [...seen, ...additions.map(({ sourceId }) => sourceId)],
+            ]).slice(0, NOTIFICATION_STORE_LIMIT);
+          newCount = additions.length;
+          return {
+            notifications,
+            seenSourceIds: boundSeenSourceIds(
+              [...valid.map(({ sourceId }) => sourceId), ...state.seenSourceIds],
+              notifications,
+            ),
           };
         });
         return { newCount };
