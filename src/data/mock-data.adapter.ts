@@ -9,15 +9,15 @@ import type {
   UserDTO,
 } from './mock-data.dto';
 import type {
+  AppNotification,
+  Assignee,
   ColumnTaskIds,
-  Comment,
   MockData,
-  Notification,
   Sprint,
-  Task,
+  SprintTask,
+  TaskComment,
   TaskPriority,
   TaskStatus,
-  User,
 } from '../domain/types';
 
 const sourceStatuses = ['backlog', 'in-progress', 'review', 'done'] as const;
@@ -42,6 +42,46 @@ function hasNumber(record: Record<string, unknown>, key: string): void {
   invariant(typeof record[key] === 'number' && Number.isFinite(record[key]), `${key} must be a number`);
 }
 
+function isValidIsoDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2}))?$/.exec(value);
+
+  if (!match) {
+    return false;
+  }
+
+  const [, yearValue, monthValue, dayValue, hourValue, minuteValue, secondValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const validCalendarDate = month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth;
+
+  if (!validCalendarDate) {
+    return false;
+  }
+
+  if (hourValue !== undefined) {
+    const validTime = Number(hourValue) <= 23
+      && Number(minuteValue) <= 59
+      && Number(secondValue) <= 59;
+    return validTime && Number.isFinite(Date.parse(value));
+  }
+
+  return true;
+}
+
+function hasValidDate(
+  record: Record<string, unknown>,
+  key: string,
+  context: string,
+): void {
+  const value = record[key];
+  invariant(
+    typeof value === 'string' && isValidIsoDate(value),
+    `${context} ${key} must be a valid ISO date string`,
+  );
+}
+
 function validateUser(value: unknown): asserts value is UserDTO {
   invariant(isRecord(value), 'user must be an object');
   hasNumber(value, 'id');
@@ -54,8 +94,9 @@ function validateSprint(value: unknown): asserts value is SprintDTO {
   invariant(isRecord(value), 'sprint must be an object');
   hasNumber(value, 'id');
   hasString(value, 'name');
-  hasString(value, 'startDate');
-  hasString(value, 'endDate');
+  const context = `sprint ${String(value.id)}`;
+  hasValidDate(value, 'startDate', context);
+  hasValidDate(value, 'endDate', context);
 }
 
 function validateTask(value: unknown): asserts value is TaskDTO {
@@ -66,12 +107,17 @@ function validateTask(value: unknown): asserts value is TaskDTO {
   invariant(sourceStatuses.includes(value.status as TaskStatusDTO), `task ${String(value.id)} has an unsupported status`);
   invariant(priorities.includes(value.priority as TaskPriorityDTO), `task ${String(value.id)} has an unsupported priority`);
   hasNumber(value, 'assigneeId');
-  hasString(value, 'dueDate');
   hasNumber(value, 'sprintId');
   hasNumber(value, 'order');
-  hasString(value, 'createdAt');
-  invariant(value.completedAt === null || typeof value.completedAt === 'string', `task ${String(value.id)} completedAt must be a string or null`);
-  hasString(value, 'updatedAt');
+  const context = `task ${String(value.id)}`;
+  hasValidDate(value, 'dueDate', context);
+  hasValidDate(value, 'createdAt', context);
+  invariant(
+    value.completedAt === null
+      || (typeof value.completedAt === 'string' && isValidIsoDate(value.completedAt)),
+    `${context} completedAt must be null or a valid ISO date string`,
+  );
+  hasValidDate(value, 'updatedAt', context);
 }
 
 function validateComment(value: unknown): asserts value is CommentDTO {
@@ -80,7 +126,7 @@ function validateComment(value: unknown): asserts value is CommentDTO {
   hasNumber(value, 'taskId');
   hasNumber(value, 'authorId');
   hasString(value, 'message');
-  hasString(value, 'createdAt');
+  hasValidDate(value, 'createdAt', `comment ${String(value.id)}`);
 }
 
 function validateNotification(value: unknown): asserts value is NotificationDTO {
@@ -90,7 +136,7 @@ function validateNotification(value: unknown): asserts value is NotificationDTO 
   hasString(value, 'message');
   invariant(notificationTypes.includes(value.type as NotificationDTO['type']), `notification ${String(value.id)} has an unsupported type`);
   invariant(typeof value.read === 'boolean', `notification ${String(value.id)} read must be a boolean`);
-  hasString(value, 'createdAt');
+  hasValidDate(value, 'createdAt', `notification ${String(value.id)}`);
 }
 
 function validateCollection<T>(
@@ -124,7 +170,7 @@ function mapPriority(priority: TaskPriorityDTO): TaskPriority {
   return priority;
 }
 
-function adaptUser(user: UserDTO): User {
+function adaptUser(user: UserDTO): Assignee {
   return {
     id: String(user.id),
     name: user.name,
@@ -137,7 +183,7 @@ function adaptSprint(sprint: SprintDTO): Sprint {
   return { ...sprint, id: String(sprint.id) };
 }
 
-function adaptTask(task: TaskDTO): Task {
+function adaptTask(task: TaskDTO): SprintTask {
   return {
     id: String(task.id),
     title: task.title,
@@ -153,7 +199,7 @@ function adaptTask(task: TaskDTO): Task {
   };
 }
 
-function adaptComment(comment: CommentDTO): Comment {
+function adaptComment(comment: CommentDTO): TaskComment {
   return {
     id: String(comment.id),
     taskId: String(comment.taskId),
@@ -163,14 +209,14 @@ function adaptComment(comment: CommentDTO): Comment {
   };
 }
 
-function adaptNotification(notification: NotificationDTO): Notification {
+function adaptNotification(notification: NotificationDTO): AppNotification {
   const sourceId = `mock:${notification.id}`;
   return {
     id: sourceId,
+    source: 'mock',
     sourceId,
     title: notification.title,
-    message: notification.message,
-    type: notification.type,
+    body: notification.message,
     readAt: notification.read ? notification.createdAt : null,
     createdAt: notification.createdAt,
   };
@@ -195,8 +241,8 @@ function validateReferences(data: MockData): void {
   });
 }
 
-export function adaptMockData(source: MockDataDTO): MockData {
-  const tasks = source.tasks.map(adaptTask);
+function mapMockDataDTO(source: MockDataDTO): MockData {
+  const tasks = source.tasks.slice(0, 30).map(adaptTask);
   const columnTaskIds: ColumnTaskIds = {
     backlog: [],
     inProgress: [],
@@ -225,6 +271,10 @@ export function adaptMockData(source: MockDataDTO): MockData {
   return data;
 }
 
+export function adaptMockData(source: MockDataDTO): MockData {
+  return mapMockDataDTO(parseMockDataDTO(source));
+}
+
 export function parseAndAdaptMockData(value: unknown): MockData {
-  return adaptMockData(parseMockDataDTO(value));
+  return mapMockDataDTO(parseMockDataDTO(value));
 }

@@ -1,8 +1,8 @@
-export interface User {
+export interface Assignee {
   id: string;
   name: string;
   email: string;
-  avatarUrl: string;
+  avatarUrl?: string;
 }
 
 export interface Sprint {
@@ -15,7 +15,7 @@ export interface Sprint {
 export type TaskStatus = 'backlog' | 'inProgress' | 'review' | 'done';
 export type TaskPriority = 'low' | 'medium' | 'high';
 
-export interface Task {
+export interface SprintTask {
   id: string;
   title: string;
   description: string;
@@ -29,7 +29,7 @@ export interface Task {
   updatedAt: string;
 }
 
-export interface Comment {
+export interface TaskComment {
   id: string;
   taskId: string;
   authorId: string;
@@ -37,25 +37,31 @@ export interface Comment {
   createdAt: string;
 }
 
-export type NotificationType = 'task' | 'review';
-
-export interface Notification {
+export interface AppNotification {
   id: string;
+  source: 'mock' | 'jsonPlaceholder';
   sourceId: string;
   title: string;
-  message: string;
-  type: NotificationType;
-  readAt: string | null;
+  body: string;
   createdAt: string;
+  readAt: string | null;
 }
 
 export type ColumnTaskIds = Record<TaskStatus, string[]>;
 
+export interface BoardStateV1 {
+  version: 1;
+  tasksById: Record<string, SprintTask>;
+  columnTaskIds: ColumnTaskIds;
+  commentsByTaskId: Record<string, TaskComment[]>;
+  initializedFromSource: boolean;
+}
+
 export interface MockData {
-  users: User[];
+  users: Assignee[];
   sprints: Sprint[];
-  tasks: Task[];
-  comments: Comment[];
-  notifications: Notification[];
+  tasks: SprintTask[];
+  comments: TaskComment[];
+  notifications: AppNotification[];
   columnTaskIds: ColumnTaskIds;
 }
