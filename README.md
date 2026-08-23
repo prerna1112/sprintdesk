@@ -6,10 +6,10 @@ SprintDesk is a responsive sprint-management single-page application. It combine
 
 - **Public repository:** pending — no Git remote is configured.
 - **Live deployment:** pending — no public deployment URL has been created yet.
-- **Demo video:** pending — no public recording URL has been created yet.
+- **Demo video:** recorded locally as `artifacts/SprintDesk-product-walkthrough.mp4`; a public recording URL is pending.
 - **Screenshots:** pending — screenshots have not been captured or checked into this repository.
 
-These entries are intentionally labelled pending; they are not claims that release artifacts already exist.
+The local video is a 52-second, 1720×900 H.264 visual walkthrough and is intentionally excluded from Git. Entries still labelled pending are not claims that public release artifacts already exist.
 
 ## Demo account
 
@@ -120,7 +120,7 @@ The `check` command includes a WCAG AA semantic-token contrast audit. The expect
 - Board edits, notification history/read state, refresh token, and theme preference are localStorage-only. Clearing site data resets them, and they do not follow the user to another browser.
 - Access-token refresh uses a deliberately short one-minute lifetime for demonstration.
 - The source dataset's current sprint is chosen as the sprint with the latest `startDate`; the board intentionally contains all first 30 source tasks rather than only that sprint.
-- Public deployment, demo video, screenshots, cross-browser device evidence, and deployed Lighthouse measurements are still pending.
+- Public repository/deployment URLs, a hosted demo-video URL, screenshots, cross-browser device evidence, and deployed Lighthouse measurements are still pending. The local demo video has been produced and visually checked.
 
 ## Deployment
 
