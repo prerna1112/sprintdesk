@@ -85,7 +85,7 @@ export function AppShell() {
       </aside>
 
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b bg-surface/95 px-4 backdrop-blur sm:px-6">
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-2 border-b bg-surface/95 px-3 backdrop-blur sm:gap-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-2">
             <Button
               aria-label="Open navigation"
@@ -101,9 +101,11 @@ export function AppShell() {
               <p className="truncate text-sm font-bold">{pageTitle}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <NotificationCenter />
-            <ThemeControl />
+            <div className="hidden sm:block">
+              <ThemeControl />
+            </div>
             <div className="ml-1 hidden items-center gap-2 border-l pl-3 sm:flex">
               {user?.image && !avatarFailed ? (
                 <img
@@ -137,6 +139,12 @@ export function AppShell() {
         title="SprintDesk"
       >
         <Navigation onNavigate={() => setMobileMenuOpen(false)} />
+        <div className="mt-6 border-t pt-6 sm:hidden">
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Appearance
+          </p>
+          <ThemeControl id="theme-preference-mobile" />
+        </div>
       </Drawer>
     </div>
   );

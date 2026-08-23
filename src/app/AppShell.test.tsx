@@ -50,6 +50,10 @@ describe('AppShell', () => {
 
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
     const drawer = screen.getByRole('dialog', { name: 'SprintDesk' });
+    expect(within(drawer).getByLabelText('Theme')).toHaveAttribute(
+      'id',
+      'theme-preference-mobile',
+    );
     await user.click(within(drawer).getByRole('link', { name: 'Board' }));
 
     expect(await screen.findByRole('button', { name: 'Create task' })).toBeVisible();

@@ -1,7 +1,11 @@
 import { Icon } from '../../components/ui/Icon';
 import { useThemeStore, type ThemePreference } from './theme-store';
 
-export function ThemeControl() {
+interface ThemeControlProps {
+  id?: string;
+}
+
+export function ThemeControl({ id = 'theme-preference' }: ThemeControlProps) {
   const preference = useThemeStore((state) => state.preference);
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const setPreference = useThemeStore((state) => state.setPreference);
@@ -12,12 +16,12 @@ export function ThemeControl() {
         className="pointer-events-none absolute left-3"
         name={resolvedTheme === 'dark' ? 'moon' : 'sun'}
       />
-      <label className="sr-only" htmlFor="theme-preference">
+      <label className="sr-only" htmlFor={id}>
         Theme
       </label>
       <select
         className="h-10 rounded-lg border bg-surface py-0 pl-10 pr-8 text-sm font-medium text-foreground"
-        id="theme-preference"
+        id={id}
         onChange={(event) =>
           setPreference(event.target.value as ThemePreference)
         }
