@@ -28,13 +28,14 @@
 
 ### Deployment and public artifacts
 
+- [x] Run Lighthouse 12.8.2 against the local production preview `/login` route: Performance 99, Accessibility 100, Best Practices 100, SEO 100 on 23 August 2026.
 - [ ] Configure the intended public Git remote and publish the final release commit before replacing the README's pending repository entry.
 - [ ] Verify the public repository URL and a clean clone in a signed-out/incognito context.
 - [ ] Deploy through either `vercel.json` or `netlify.toml` with Node 22.12.0+.
 - [ ] Verify direct navigation and browser refresh on `/login`, `/dashboard`, `/board`, and `/analytics`.
 - [ ] Verify `/mock-data.json`, hashed assets, DummyJSON, JSONPlaceholder, and avatar requests on the deployed origin.
 - [ ] Verify localStorage persistence and logout on the deployed origin.
-- [ ] Run Lighthouse in an incognito/clean profile against the production deployment.
+- [ ] Repeat Lighthouse in an incognito/clean profile against the production deployment and authenticated routes.
 - [ ] Meet the release gates: Performance >= 88 and Accessibility >= 92. Record URL, route, device mode, date, and tool version; do not average or invent values.
 - [ ] Capture representative screenshots, or leave the README screenshot entry explicitly pending.
 - [ ] Record and publish the demo video.

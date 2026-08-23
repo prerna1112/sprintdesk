@@ -12,4 +12,5 @@ afterEach(() => {
   resetAuthBootstrapForTests();
   resetNotificationStore();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });

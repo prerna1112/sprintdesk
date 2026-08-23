@@ -1,9 +1,12 @@
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import sourceJson from '../../public/mock-data.json';
 import App from './App';
 import { renderWithProviders } from '../test/render';
 import { useAuthStore } from '../features/auth';
+import { resetBoardStore } from '../features/board';
+import { NOTIFICATIONS_ENDPOINT } from '../features/notifications';
 
 const testUser = {
   id: '1', username: 'emilys', email: 'emily@example.com', firstName: 'Emily', lastName: 'Johnson', image: '',
@@ -11,6 +14,21 @@ const testUser = {
 
 describe('AppShell', () => {
   beforeEach(() => {
+    resetBoardStore();
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>((input) => {
+      const url = String(input);
+      const payload = url === '/mock-data.json'
+        ? sourceJson
+        : url === NOTIFICATIONS_ENDPOINT
+          ? []
+          : null;
+
+      if (payload === null) return Promise.reject(new Error(`Unexpected request: ${url}`));
+      return Promise.resolve(new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    }));
     useAuthStore.getState().setSession({
       accessToken: 'access', accessTokenExpiresAt: Date.now() + 60_000, user: testUser,
     });
@@ -34,7 +52,8 @@ describe('AppShell', () => {
     const drawer = screen.getByRole('dialog', { name: 'SprintDesk' });
     await user.click(within(drawer).getByRole('link', { name: 'Board' }));
 
-    expect(await screen.findByRole('heading', { name: 'Board' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Create task' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Board', level: 1 })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

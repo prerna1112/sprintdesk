@@ -92,16 +92,16 @@ React Router v6 is an assignment constraint. The current audit has two moderate 
 
 The app uses semantic landmarks and headings, labelled fields and controls, visible focus rings, skip navigation, focus-trapped/restoring overlays, live regions, keyboard drag controls, textual chart summaries, initials fallbacks for failed avatars, and `prefers-reduced-motion` handling. The board uses 87vw snap columns below desktop and was designed for a 375px baseline. A final manual device/browser pass remains part of the submission checklist.
 
-The 2026-08-22 local production build (Vite 8.2.2) measured these representative compressed assets:
+The 2026-08-23 local production build (Vite 8.2.2) measured these representative compressed assets:
 
 | Asset | Gzip size |
 |---|---:|
 | Application bootstrap (`index`) | 7.60 kB |
 | Board feature chunk | 23.54 kB |
-| Analytics route chunk, including Recharts | 117.89 kB |
-| Global CSS | 5.24 kB |
+| Analytics route chunk, including Recharts | 117.88 kB |
+| Global CSS | 5.25 kB |
 
-No Lighthouse score is claimed. Lighthouse is not installed in the release environment, and a deployed origin does not exist yet. The release gates are **Performance >= 88** and **Accessibility >= 92**. After deployment, run an incognito Lighthouse navigation against each primary route as described in [Submission guide](docs/SUBMISSION.md).
+A Lighthouse 12.8.2 mobile navigation audit of the production build served locally at `/login` on 23 August 2026 scored **Performance 99**, **Accessibility 100**, **Best Practices 100**, and **SEO 100** (FCP/LCP 1.7 s, TBT 0 ms, CLS 0). This is [local release evidence](docs/LIGHTHOUSE.md), not a deployed-origin claim. After deployment, repeat the audit against the public origin and authenticated primary routes as described in the [Submission guide](docs/SUBMISSION.md).
 
 ## Testing and release checks
 
@@ -111,7 +111,7 @@ npm audit --audit-level=high
 shasum -a 256 public/mock-data.json
 ```
 
-The expected mock-data checksum is `1015e1bdc02d855b229122e164551b58a6993b9e3fbcf6568a185990d338157b`. The audit command is expected to report the two documented moderate Router v6 advisories while passing the high-severity release gate.
+The `check` command includes a WCAG AA semantic-token contrast audit. The expected mock-data checksum is `1015e1bdc02d855b229122e164551b58a6993b9e3fbcf6568a185990d338157b`. The dependency audit command is expected to report the two documented moderate Router v6 advisories while passing the high-severity release gate.
 
 ## Known limitations
 
