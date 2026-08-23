@@ -36,7 +36,7 @@ describe('login and logout flow', () => {
     expect(password).toHaveAttribute('type', 'text');
     expect(password).toHaveValue('emilyspass');
     expect(password).toHaveFocus();
-    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Hide password' })).not.toHaveAttribute('aria-pressed');
 
     await userEventApi.tab();
     const hidePassword = screen.getByRole('button', { name: 'Hide password' });

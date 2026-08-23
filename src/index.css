@@ -10,7 +10,7 @@
     --surface: 0 0% 100%;
     --elevated: 0 0% 100%;
     --overlay: 222 47% 11%;
-    --border: 214 32% 91%;
+    --border: 214 16% 56%;
     --primary: 243 72% 52%;
     --primary-foreground: 0 0% 100%;
     --muted: 210 40% 96%;
@@ -38,7 +38,7 @@
     --surface: 220 12% 12%;
     --elevated: 218 11% 16%;
     --overlay: 220 15% 5%;
-    --border: 216 10% 28%;
+    --border: 216 10% 50%;
     --primary: 212 54% 68%;
     --primary-foreground: 220 18% 10%;
     --muted: 218 11% 19%;

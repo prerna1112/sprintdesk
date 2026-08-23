@@ -64,7 +64,6 @@ export default function LoginRoute() {
             endAdornment={(
               <button
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
-                aria-pressed={showPassword}
                 className="grid h-11 w-11 place-items-center rounded-r-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={login.isPending}
                 onClick={() => setShowPassword((visible) => !visible)}

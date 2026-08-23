@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 
 const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
-const minimumContrast = 4.5;
+const minimumTextContrast = 4.5;
+const minimumNonTextContrast = 3;
 
 function parseTheme(selector) {
   const escapedSelector = selector.replace('.', '\\.');
@@ -90,7 +91,7 @@ for (const [themeName, selector] of [['light', ':root'], ['dark', '.dark']]) {
       requiredToken(theme, foregroundName),
       requiredToken(theme, backgroundName),
     );
-    if (ratio < minimumContrast) {
+    if (ratio < minimumTextContrast) {
       failures.push(`${themeName}: ${label} is ${ratio.toFixed(2)}:1`);
     }
   }
@@ -136,7 +137,7 @@ for (const [themeName, selector] of [['light', ':root'], ['dark', '.dark']]) {
 
     for (const [label, foreground, background] of contextualPairs) {
       const ratio = contrastRatio(foreground, background);
-      if (ratio < minimumContrast) {
+      if (ratio < minimumTextContrast) {
         failures.push(`${themeName}: ${label} on ${containerName} is ${ratio.toFixed(2)}:1`);
       }
     }
@@ -145,7 +146,7 @@ for (const [themeName, selector] of [['light', ':root'], ['dark', '.dark']]) {
       const color = requiredToken(theme, `priority-${priority}`);
       const tintedBackground = blend(color, container, 0.15);
       const ratio = contrastRatio(color, tintedBackground);
-      if (ratio < minimumContrast) {
+      if (ratio < minimumTextContrast) {
         failures.push(
           `${themeName}: ${priority} priority badge on ${containerName} is ${ratio.toFixed(2)}:1`,
         );
@@ -159,7 +160,29 @@ for (const [themeName, selector] of [['light', ':root'], ['dark', '.dark']]) {
     ['muted foreground on muted', requiredToken(theme, 'muted-foreground')],
   ]) {
     const ratio = contrastRatio(foreground, muted);
-    if (ratio < minimumContrast) {
+    if (ratio < minimumTextContrast) {
+      failures.push(`${themeName}: ${label} is ${ratio.toFixed(2)}:1`);
+    }
+  }
+
+  // Borders are the only persistent visual boundary for inputs and several
+  // bordered controls. Focus rings sit next to the global background-colored
+  // ring offset, including the danger ring used by invalid fields.
+  const nonTextPairs = [
+    ['component border against background', 'border', 'background'],
+    ['component border against surface', 'border', 'surface'],
+    ['component border against elevated', 'border', 'elevated'],
+    ['component border against muted', 'border', 'muted'],
+    ['primary focus ring against its background offset', 'primary', 'background'],
+    ['danger focus ring against its background offset', 'danger', 'background'],
+  ];
+
+  for (const [label, foregroundName, backgroundName] of nonTextPairs) {
+    const ratio = contrastRatio(
+      requiredToken(theme, foregroundName),
+      requiredToken(theme, backgroundName),
+    );
+    if (ratio < minimumNonTextContrast) {
       failures.push(`${themeName}: ${label} is ${ratio.toFixed(2)}:1`);
     }
   }
@@ -169,4 +192,4 @@ if (failures.length > 0) {
   throw new Error(`WCAG AA contrast verification failed:\n${failures.join('\n')}`);
 }
 
-console.log('WCAG AA contrast verification passed for semantic text color pairs.');
+console.log('WCAG AA contrast verification passed for semantic text and component boundaries.');

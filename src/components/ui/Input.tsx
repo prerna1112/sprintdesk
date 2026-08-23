@@ -5,7 +5,13 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   hint?: string;
   error?: string;
+  /** Trailing content; booleans and empty strings are absent, while numeric zero is rendered. */
   endAdornment?: ReactNode;
+}
+
+function hasRenderableAdornment(adornment: ReactNode): boolean {
+  if (adornment == null || typeof adornment === 'boolean') return false;
+  return typeof adornment !== 'string' || adornment.length > 0;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
@@ -29,6 +35,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   const describedBy = [callerDescribedBy, hintId, errorId]
     .filter(Boolean)
     .join(' ') || undefined;
+  const hasEndAdornment = hasRenderableAdornment(endAdornment);
 
   return (
     <div className="grid gap-1.5">
@@ -41,7 +48,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           aria-invalid={error ? true : callerInvalid}
           className={cn(
             'h-10 w-full rounded-lg border bg-surface px-3 text-sm text-foreground shadow-sm placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
-            endAdornment != null && 'pr-12',
+            hasEndAdornment && 'pr-12',
             error && 'border-danger focus-visible:ring-danger',
             className,
           )}
@@ -49,7 +56,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           ref={ref}
           {...props}
         />
-        {endAdornment ? (
+        {hasEndAdornment ? (
           <div className="absolute inset-y-0 right-0 flex items-center">
             {endAdornment}
           </div>

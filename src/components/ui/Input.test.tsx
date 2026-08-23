@@ -39,4 +39,22 @@ describe('Input', () => {
       'At least three characters Choose another value This value is unavailable',
     );
   });
+
+  it('reserves trailing space only for renderable adornment content', () => {
+    const { rerender } = render(<Input endAdornment={false} label="False adornment" />);
+    let input = screen.getByRole('textbox', { name: 'False adornment' });
+    expect(input).not.toHaveClass('pr-12');
+    expect(input.parentElement?.childElementCount).toBe(1);
+
+    rerender(<Input endAdornment="" label="Empty adornment" />);
+    input = screen.getByRole('textbox', { name: 'Empty adornment' });
+    expect(input).not.toHaveClass('pr-12');
+    expect(input.parentElement?.childElementCount).toBe(1);
+
+    rerender(<Input endAdornment={0} label="Numeric adornment" />);
+    input = screen.getByRole('textbox', { name: 'Numeric adornment' });
+    expect(input).toHaveClass('pr-12');
+    expect(input.parentElement?.childElementCount).toBe(2);
+    expect(input.parentElement).toHaveTextContent('0');
+  });
 });
