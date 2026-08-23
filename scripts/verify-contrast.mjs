@@ -74,6 +74,8 @@ const failures = [];
 
 for (const [themeName, selector] of [['light', ':root'], ['dark', '.dark']]) {
   const theme = parseTheme(selector);
+  // These are the base surfaces that can directly contain all semantic text
+  // treatments. Muted is checked separately for the text it actually hosts.
   const containerNames = ['background', 'surface', 'elevated'];
   const pairs = [
     ['primary foreground on primary', 'primary-foreground', 'primary'],
@@ -120,6 +122,16 @@ for (const [themeName, selector] of [['light', ':root'], ['dark', '.dark']]) {
         requiredToken(theme, 'danger'),
         blend(requiredToken(theme, 'danger'), container, 0.1),
       ],
+      [
+        'foreground on 10% warning tint',
+        requiredToken(theme, 'foreground'),
+        blend(requiredToken(theme, 'warning'), container, 0.1),
+      ],
+      [
+        'foreground on 5% primary tint',
+        requiredToken(theme, 'foreground'),
+        blend(requiredToken(theme, 'primary'), container, 0.05),
+      ],
     ];
 
     for (const [label, foreground, background] of contextualPairs) {
@@ -138,6 +150,17 @@ for (const [themeName, selector] of [['light', ':root'], ['dark', '.dark']]) {
           `${themeName}: ${priority} priority badge on ${containerName} is ${ratio.toFixed(2)}:1`,
         );
       }
+    }
+  }
+
+  const muted = requiredToken(theme, 'muted');
+  for (const [label, foreground] of [
+    ['foreground on muted', requiredToken(theme, 'foreground')],
+    ['muted foreground on muted', requiredToken(theme, 'muted-foreground')],
+  ]) {
+    const ratio = contrastRatio(foreground, muted);
+    if (ratio < minimumContrast) {
+      failures.push(`${themeName}: ${label} is ${ratio.toFixed(2)}:1`);
     }
   }
 }

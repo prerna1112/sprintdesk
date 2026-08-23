@@ -23,6 +23,30 @@ describe('login and logout flow', () => {
     expect(login).not.toHaveBeenCalled();
   });
 
+  it('shows and hides the password without losing its value or focus', async () => {
+    const userEventApi = userEvent.setup();
+    renderWithProviders(<App />, { route: '/login' });
+    const password = await screen.findByLabelText('Password');
+
+    await userEventApi.type(password, 'emilyspass');
+    expect(password).toHaveAttribute('type', 'password');
+    expect(password).toHaveFocus();
+
+    await userEventApi.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(password).toHaveAttribute('type', 'text');
+    expect(password).toHaveValue('emilyspass');
+    expect(password).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveAttribute('aria-pressed', 'true');
+
+    await userEventApi.tab();
+    const hidePassword = screen.getByRole('button', { name: 'Hide password' });
+    expect(hidePassword).toHaveFocus();
+    await userEventApi.keyboard('{Enter}');
+    expect(password).toHaveAttribute('type', 'password');
+    expect(password).toHaveValue('emilyspass');
+    expect(screen.getByRole('button', { name: 'Show password' })).toHaveFocus();
+  });
+
   it('signs in, stores only the refresh token, and returns safely to the intended route', async () => {
     vi.spyOn(authService, 'login').mockResolvedValue(result);
     const userEventApi = userEvent.setup();

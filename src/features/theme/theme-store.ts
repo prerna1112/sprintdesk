@@ -69,7 +69,7 @@ export function applyResolvedTheme(theme: ResolvedTheme) {
   const themeColor = document.querySelector<HTMLMetaElement>(
     'meta[name="theme-color"]',
   );
-  themeColor?.setAttribute('content', theme === 'dark' ? '#0b1120' : '#f8fafc');
+  themeColor?.setAttribute('content', theme === 'dark' ? '#14171a' : '#f8fafc');
 }
 
 export const useThemeStore = create<ThemeState>()(

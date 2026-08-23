@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Button, Input, useToast } from '../components/ui';
+import { Button, Icon, Input, useToast } from '../components/ui';
 import { useLogin } from '../features/auth';
 import { AuthServiceError } from '../services/api-client/auth-service';
 import { safeInternalPath } from '../routing/safe-internal-path';
@@ -13,6 +13,7 @@ function getReturnPath(state: unknown): string {
 export default function LoginRoute() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const login = useLogin();
   const navigate = useNavigate();
@@ -58,11 +59,26 @@ export default function LoginRoute() {
           />
           <Input
             autoComplete="current-password"
+            className="h-11"
             disabled={login.isPending}
+            endAdornment={(
+              <button
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                className="grid h-11 w-11 place-items-center rounded-r-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={login.isPending}
+                onClick={() => setShowPassword((visible) => !visible)}
+                onPointerDown={(event) => event.preventDefault()}
+                title={showPassword ? 'Hide password' : 'Show password'}
+                type="button"
+              >
+                <Icon name={showPassword ? 'eyeOff' : 'eye'} />
+              </button>
+            )}
             error={passwordError}
             label="Password"
             onChange={(event) => setPassword(event.target.value)}
-            type="password"
+            type={showPassword ? 'text' : 'password'}
             value={password}
           />
           {apiError ? (

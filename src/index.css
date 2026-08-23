@@ -33,30 +33,30 @@
 
   .dark {
     color-scheme: dark;
-    --background: 222 47% 7%;
-    --foreground: 210 40% 98%;
-    --surface: 222 47% 11%;
-    --elevated: 222 38% 14%;
-    --overlay: 222 47% 4%;
-    --border: 217 25% 24%;
-    --primary: 239 84% 76%;
-    --primary-foreground: 222 47% 8%;
-    --muted: 217 33% 18%;
-    --muted-foreground: 215 20% 72%;
-    --danger: 0 72% 66%;
-    --danger-foreground: 222 47% 8%;
-    --success: 158 64% 48%;
-    --success-foreground: 158 80% 8%;
-    --warning: 38 92% 55%;
-    --warning-foreground: 32 90% 8%;
-    --info: 199 89% 58%;
-    --info-foreground: 202 90% 8%;
-    --priority-low: 158 64% 48%;
-    --priority-medium: 38 92% 55%;
-    --priority-high: 0 72% 68%;
-    --status-backlog: 215 20% 65%;
-    --status-progress: 239 84% 70%;
-    --status-done: 158 64% 48%;
+    --background: 220 13% 9%;
+    --foreground: 210 17% 95%;
+    --surface: 220 12% 12%;
+    --elevated: 218 11% 16%;
+    --overlay: 220 15% 5%;
+    --border: 216 10% 28%;
+    --primary: 212 54% 68%;
+    --primary-foreground: 220 18% 10%;
+    --muted: 218 11% 19%;
+    --muted-foreground: 216 12% 70%;
+    --danger: 4 58% 70%;
+    --danger-foreground: 0 22% 10%;
+    --success: 158 42% 56%;
+    --success-foreground: 160 30% 8%;
+    --warning: 38 64% 62%;
+    --warning-foreground: 32 28% 9%;
+    --info: 204 52% 64%;
+    --info-foreground: 210 25% 9%;
+    --priority-low: 158 42% 56%;
+    --priority-medium: 38 64% 62%;
+    --priority-high: 4 58% 72%;
+    --status-backlog: 215 12% 65%;
+    --status-progress: 212 48% 64%;
+    --status-done: 158 40% 54%;
   }
 
   * {
