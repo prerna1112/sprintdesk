@@ -38,7 +38,7 @@
 - [ ] Repeat Lighthouse in an incognito/clean profile against the production deployment and authenticated routes.
 - [ ] Meet the release gates: Performance >= 88 and Accessibility >= 92. Record URL, route, device mode, date, and tool version; do not average or invent values.
 - [ ] Capture representative screenshots, or leave the README screenshot entry explicitly pending.
-- [x] Record and visually verify the local demo video (`artifacts/SprintDesk-product-walkthrough.mp4`, 52 seconds, 1720×900 H.264).
+- [x] Record and visually verify the local demo video (`artifacts/SprintDesk-complete-project-screen-recording.mp4`, 98 seconds, 1280×720 H.264 screen recording).
 - [ ] Publish the demo video and verify its public URL in a signed-out/incognito window.
 - [ ] Replace the README's pending repository/live/demo entries only after publication, then verify every link in a signed-out/incognito window.
 

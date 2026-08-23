@@ -6,10 +6,10 @@ SprintDesk is a responsive sprint-management single-page application. It combine
 
 - **Public repository:** pending — no Git remote is configured.
 - **Live deployment:** pending — no public deployment URL has been created yet.
-- **Demo video:** recorded locally as `artifacts/SprintDesk-product-walkthrough.mp4`; a public recording URL is pending.
+- **Demo video:** recorded locally as `artifacts/SprintDesk-complete-project-screen-recording.mp4`; a public recording URL is pending.
 - **Screenshots:** pending — screenshots have not been captured or checked into this repository.
 
-The local video is a 52-second, 1720×900 H.264 visual walkthrough and is intentionally excluded from Git. Entries still labelled pending are not claims that public release artifacts already exist.
+The local video is a 98-second, 1280×720 H.264 screen-recording walkthrough with continuous typing, navigation, scrolling, task workflows, analytics, responsive views, and logout. It is intentionally excluded from Git. Entries still labelled pending are not claims that public release artifacts already exist.
 
 ## Demo account
 
