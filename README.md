@@ -2,10 +2,12 @@
 
 SprintDesk is a responsive sprint-management single-page application. It combines a persisted four-column task board, source-derived analytics, a compact dashboard, notifications, theme preferences, and a simulated refresh-token authentication lifecycle.
 
+[View the live application](https://sprintdesk-gules.vercel.app) · [Browse the source code](https://github.com/prerna1112/sprintdesk)
+
 ## Submission links
 
-- **Public repository:** pending — no Git remote is configured.
-- **Live deployment:** pending — no public deployment URL has been created yet.
+- **Public repository:** [github.com/prerna1112/sprintdesk](https://github.com/prerna1112/sprintdesk)
+- **Live deployment:** [sprintdesk-gules.vercel.app](https://sprintdesk-gules.vercel.app)
 - **Demo video:** recorded locally as `artifacts/SprintDesk-dashboard-complete-screen-recording.mp4`; a public recording URL is pending.
 - **Screenshots:** pending — screenshots have not been captured or checked into this repository.
 
@@ -120,15 +122,15 @@ The `check` command includes a WCAG AA semantic-token contrast audit. The expect
 - Board edits, notification history/read state, refresh token, and theme preference are localStorage-only. Clearing site data resets them, and they do not follow the user to another browser.
 - Access-token refresh uses a deliberately short one-minute lifetime for demonstration.
 - The source dataset's current sprint is chosen as the sprint with the latest `startDate`; the board intentionally contains all first 30 source tasks rather than only that sprint.
-- Public repository/deployment URLs, a hosted demo-video URL, screenshots, cross-browser device evidence, and deployed Lighthouse measurements are still pending. The local demo video has been produced and visually checked.
+- A hosted demo-video URL, screenshots, cross-browser device evidence, and deployed Lighthouse measurements are still pending. The local demo video has been produced and visually checked.
 
 ## Deployment
 
 Both supported configurations build with `npm run build`, publish `dist`, preserve real asset/mock-data requests, and fall back application routes to `index.html`:
 
-- **Vercel:** import the repository. `vercel.json` supplies the build, output, and SPA rewrite settings.
+- **Vercel:** the production deployment is live at [sprintdesk-gules.vercel.app](https://sprintdesk-gules.vercel.app). The project is connected to the repository's `main` branch for automatic production deployments, while `vercel.json` supplies the build, output, and SPA rewrite settings.
 - **Netlify:** import the repository. `netlify.toml` supplies the build, publish, and non-forced SPA fallback settings.
 
-No production environment variable is required. If `VITE_API_BASE_URL` is set in the provider UI, it must be the public base URL of a contract-compatible auth service. After deployment, verify direct navigation and refresh on `/login`, `/dashboard`, `/board`, and `/analytics`; then verify API CORS, persistence, logout, responsive layouts, and Lighthouse.
+No production environment variable is required. If `VITE_API_BASE_URL` is set in the provider UI, it must be the public base URL of a contract-compatible auth service. The Vercel deployment has been verified for direct SPA navigation, DummyJSON authentication, `/mock-data.json`, dashboard rendering, board and analytics routes, notification polling, session persistence, logout, and the 375×812 responsive layout. A deployed-origin Lighthouse run and broader cross-browser pass remain release follow-ups.
 
 The final handoff checklist and a concise reviewer walkthrough are in [docs/SUBMISSION.md](docs/SUBMISSION.md).
